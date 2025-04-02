@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union, Any
 
-from .utils import log_status, run_command
-from .environment import EnvironmentManager
+from .utils import log_status, run_command, Colors
+from .environment import SafeEnvironment
 
 
 class DependencyManager:
@@ -46,9 +46,11 @@ class DependencyManager:
     def _get_pip_executable(self) -> str:
         """Get the appropriate pip executable based on environment."""
         if self.venv_path:
+            # Always recheck the platform when getting the executable
             if sys.platform == "win32":
                 return str(self.venv_path / "Scripts" / "pip.exe")
-            return str(self.venv_path / "bin" / "pip")
+            else:  # unix-like systems (Linux, macOS)
+                return str(self.venv_path / "bin" / "pip")
         return "pip"
     
     def _get_poetry_executable(self) -> Optional[str]:
@@ -87,7 +89,7 @@ class DependencyManager:
         with open(output_path, "w") as f:
             f.write("\n".join(dependencies) + "\n")
             
-        log_status(f"Created requirements file at {output_path}")
+        log_status(f"Created requirements file at {output_path}", Colors.GREEN)
         return output_path
     
     def install_requirements(self, 
@@ -109,7 +111,7 @@ class DependencyManager:
             requirements_path = self.project_dir / "requirements.txt"
         
         if not Path(requirements_path).exists():
-            log_status(f"Requirements file {requirements_path} does not exist", level="error")
+            log_status(f"Requirements file {requirements_path} does not exist", Colors.RED)
             return False
         
         cmd = [self.pip_executable, "install", "-r", str(requirements_path)]
@@ -117,13 +119,13 @@ class DependencyManager:
         if upgrade:
             cmd.append("--upgrade")
             
-        result = run_command(cmd, capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True)
         
         if result.returncode != 0:
-            log_status(f"Failed to install requirements: {result.stderr}", level="error")
+            log_status(f"Failed to install requirements: {result.stderr}", Colors.RED)
             return False
             
-        log_status(f"Successfully installed dependencies from {requirements_path}")
+        log_status(f"Successfully installed dependencies from {requirements_path}", Colors.GREEN)
         return True
     
     def install_package(self, 
@@ -151,13 +153,13 @@ class DependencyManager:
         if upgrade:
             cmd.append("--upgrade")
             
-        result = run_command(cmd, capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True)
         
         if result.returncode != 0:
-            log_status(f"Failed to install {package}: {result.stderr}", level="error")
+            log_status(f"Failed to install {package}: {result.stderr}", Colors.RED)
             return False
             
-        log_status(f"Successfully installed {package}")
+        log_status(f"Successfully installed {package}", Colors.GREEN)
         return True
     
     def list_installed_packages(self) -> Dict[str, str]:
@@ -168,10 +170,10 @@ class DependencyManager:
             Dictionary mapping package names to versions
         """
         cmd = [self.pip_executable, "list", "--format=json"]
-        result = run_command(cmd, capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True)
         
         if result.returncode != 0:
-            log_status(f"Failed to list packages: {result.stderr}", level="error")
+            log_status(f"Failed to list packages: {result.stderr}", Colors.RED)
             return {}
             
         packages = json.loads(result.stdout)
@@ -194,7 +196,7 @@ class DependencyManager:
             return [f"Requirements file {requirements_path} does not exist"]
             
         cmd = [self.pip_executable, "check"]
-        result = run_command(cmd, capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True)
         
         if result.returncode != 0:
             return result.stdout.strip().split("\n")
@@ -212,16 +214,16 @@ class DependencyManager:
             True if export was successful, False otherwise
         """
         cmd = [self.pip_executable, "freeze"]
-        result = run_command(cmd, capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True)
         
         if result.returncode != 0:
-            log_status(f"Failed to export environment: {result.stderr}", level="error")
+            log_status(f"Failed to export environment: {result.stderr}", Colors.RED)
             return False
             
         with open(output_path, "w") as f:
             f.write(result.stdout)
             
-        log_status(f"Exported environment to {output_path}")
+        log_status(f"Exported environment to {output_path}", Colors.GREEN)
         return True
     
     # Poetry integration methods
@@ -246,11 +248,11 @@ class DependencyManager:
             True if initialization was successful, False otherwise
         """
         if not self.has_poetry():
-            log_status("Poetry is not installed", level="error")
+            log_status("Poetry is not installed", Colors.RED)
             return False
             
         if self.has_pyproject_toml():
-            log_status("pyproject.toml already exists", level="warning")
+            log_status("pyproject.toml already exists", Colors.YELLOW)
             return False
             
         cmd = [self.poetry_executable, "init", 
@@ -266,10 +268,10 @@ class DependencyManager:
         # Create project without interaction    
         cmd.append("--no-interaction")
         
-        result = run_command(cmd, cwd=str(self.project_dir), capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True, cwd=str(self.project_dir))
         
         if result.returncode != 0:
-            log_status(f"Failed to initialize Poetry project: {result.stderr}", level="error")
+            log_status(f"Failed to initialize Poetry project: {result.stderr}", Colors.RED)
             return False
             
         # Add dependencies if specified
@@ -277,7 +279,7 @@ class DependencyManager:
             for dep in dependencies:
                 self.poetry_add_dependency(dep)
                 
-        log_status(f"Initialized Poetry project at {self.project_dir}")
+        log_status(f"Initialized Poetry project at {self.project_dir}", Colors.GREEN)
         return True
     
     def poetry_add_dependency(self, 
@@ -296,11 +298,11 @@ class DependencyManager:
             True if the dependency was added successfully, False otherwise
         """
         if not self.has_poetry():
-            log_status("Poetry is not installed", level="error")
+            log_status("Poetry is not installed", Colors.RED)
             return False
             
         if not self.has_pyproject_toml():
-            log_status("No pyproject.toml found", level="error")
+            log_status("No pyproject.toml found", Colors.RED)
             return False
             
         cmd = [self.poetry_executable, "add", dependency]
@@ -311,13 +313,13 @@ class DependencyManager:
         if group:
             cmd.extend(["--group", group])
             
-        result = run_command(cmd, cwd=str(self.project_dir), capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True, cwd=str(self.project_dir))
         
         if result.returncode != 0:
-            log_status(f"Failed to add dependency {dependency}: {result.stderr}", level="error")
+            log_status(f"Failed to add dependency {dependency}: {result.stderr}", Colors.RED)
             return False
             
-        log_status(f"Added dependency {dependency}")
+        log_status(f"Added dependency {dependency}", Colors.GREEN)
         return True
     
     def poetry_install(self, dev: bool = True, no_root: bool = False) -> bool:
@@ -332,11 +334,11 @@ class DependencyManager:
             True if installation was successful, False otherwise
         """
         if not self.has_poetry():
-            log_status("Poetry is not installed", level="error")
+            log_status("Poetry is not installed", Colors.RED)
             return False
             
         if not self.has_pyproject_toml():
-            log_status("No pyproject.toml found", level="error")
+            log_status("No pyproject.toml found", Colors.RED)
             return False
             
         cmd = [self.poetry_executable, "install"]
@@ -347,13 +349,13 @@ class DependencyManager:
         if no_root:
             cmd.append("--no-root")
             
-        result = run_command(cmd, cwd=str(self.project_dir), capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True, cwd=str(self.project_dir))
         
         if result.returncode != 0:
-            log_status(f"Failed to install dependencies: {result.stderr}", level="error")
+            log_status(f"Failed to install dependencies: {result.stderr}", Colors.RED)
             return False
             
-        log_status("Successfully installed dependencies")
+        log_status("Successfully installed dependencies", Colors.GREEN)
         return True
     
     def convert_requirements_to_poetry(self, requirements_path: Union[str, Path]) -> bool:
@@ -367,11 +369,11 @@ class DependencyManager:
             True if conversion was successful, False otherwise
         """
         if not self.has_poetry():
-            log_status("Poetry is not installed", level="error")
+            log_status("Poetry is not installed", Colors.RED)
             return False
             
         if not Path(requirements_path).exists():
-            log_status(f"Requirements file {requirements_path} does not exist", level="error")
+            log_status(f"Requirements file {requirements_path} does not exist", Colors.RED)
             return False
             
         # Initialize Poetry project if not already initialized
@@ -403,21 +405,21 @@ class DependencyManager:
             True if conversion was successful, False otherwise
         """
         if not self.has_poetry():
-            log_status("Poetry is not installed", level="error")
+            log_status("Poetry is not installed", Colors.RED)
             return False
             
         if not self.has_pyproject_toml():
-            log_status("No pyproject.toml found", level="error")
+            log_status("No pyproject.toml found", Colors.RED)
             return False
             
         cmd = [self.poetry_executable, "export", "--format", "requirements.txt", "--output", str(output_path)]
-        result = run_command(cmd, cwd=str(self.project_dir), capture_output=True, text=True)
+        result = run_command(cmd, shell=False, capture_output=True, cwd=str(self.project_dir))
         
         if result.returncode != 0:
-            log_status(f"Failed to export requirements: {result.stderr}", level="error")
+            log_status(f"Failed to export requirements: {result.stderr}", Colors.RED)
             return False
             
-        log_status(f"Exported requirements to {output_path}")
+        log_status(f"Exported requirements to {output_path}", Colors.GREEN)
         return True
     
     # Environment isolation methods
@@ -433,13 +435,15 @@ class DependencyManager:
         Returns:
             True if creation was successful, False otherwise
         """
-        env_manager = EnvironmentManager(project_path=self.project_dir)
+        venv_path_obj = Path(venv_path)
         
-        if env_manager.create_venv(venv_path=str(venv_path)):
-            log_status(f"Created virtual environment at {venv_path}")
+        # Create the virtual environment using the built-in venv module
+        try:
+            log_status(f"Creating virtual environment at {venv_path_obj}", Colors.YELLOW)
+            subprocess.run([sys.executable, "-m", "venv", str(venv_path_obj)], check=True)
             
             # Update dependency manager with new venv
-            self.venv_path = Path(venv_path)
+            self.venv_path = venv_path_obj
             self.pip_executable = self._get_pip_executable()
             
             # Install requirements if specified
@@ -447,8 +451,12 @@ class DependencyManager:
                 return self.install_requirements(requirements_path)
                 
             return True
-            
-        return False
+        except subprocess.CalledProcessError as e:
+            log_status(f"Failed to create virtual environment: {e}", Colors.RED)
+            return False
+        except Exception as e:
+            log_status(f"Error creating virtual environment: {e}", Colors.RED)
+            return False
     
     def is_package_installed(self, package_name: str) -> bool:
         """
@@ -515,7 +523,7 @@ def install_package_manager(manager: str = "pip") -> bool:
             subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], check=True)
             return True
         except subprocess.CalledProcessError:
-            log_status("Failed to install pip", level="error")
+            log_status("Failed to install pip", Colors.RED)
             return False
             
     elif manager == "poetry":
@@ -531,7 +539,7 @@ def install_package_manager(manager: str = "pip") -> bool:
             subprocess.run(["pip", "install", "poetry"], check=True)
             return True
         except subprocess.CalledProcessError:
-            log_status("Failed to install poetry", level="error")
+            log_status("Failed to install poetry", Colors.RED)
             return False
             
     return False 
