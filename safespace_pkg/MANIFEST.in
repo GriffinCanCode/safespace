@@ -1,0 +1,6 @@
+include LICENSE
+include README.md
+include pyproject.toml
+recursive-include safespace/internal *.txt
+recursive-include safespace/templates *.txt *.py *.json *.yaml *.md *.ini *.cfg
+global-exclude *.py[cod] __pycache__ *.so .DS_Store

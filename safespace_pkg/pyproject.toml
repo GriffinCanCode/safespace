@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "safespace"
+version = "0.1.0"
+description = "Safe Environment Creator and Manager"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Griffin", email = "griffin@griffin-code.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "psutil>=5.9.0",
+    "click>=8.0.0",
+    "pathlib>=1.0.1",
+]
+
+[project.optional-dependencies]
+network = [
+    "pyroute2>=0.7.0",
+]
+vm = [
+    "qemu.py>=0.1.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+dev = [
+    "black>=23.3.0",
+    "isort>=5.12.0",
+    "mypy>=1.2.0",
+    "build>=0.10.0",
+    "twine>=4.0.2",
+]
+
+[project.scripts]
+safespace = "safespace.cli:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
