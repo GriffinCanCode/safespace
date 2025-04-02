@@ -30,6 +30,14 @@ class NetworkSettings:
     default_dns_servers: List[str] = field(default_factory=lambda: ["8.8.8.8", "1.1.1.1"])
     enable_nat: bool = True
     create_tap_device: bool = True
+    # Network condition simulation settings
+    simulate_conditions: bool = False
+    default_latency: str = "50ms"  # Default added latency 
+    default_jitter: str = "10ms"   # Default jitter for latency
+    default_packet_loss: float = 0.0  # Default packet loss as percentage (0-100)
+    default_packet_corruption: float = 0.0  # Default packet corruption as percentage (0-100)
+    default_packet_reordering: float = 0.0  # Default packet reordering as percentage (0-100)
+    default_bandwidth: str = "10mbit"  # Default bandwidth limit
 
 @dataclass
 class VMSettings:

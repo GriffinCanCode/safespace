@@ -11,7 +11,7 @@ import os
 import platform
 import subprocess
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 
 from .utils import log_status, Colors
 from .settings import get_settings
@@ -45,6 +45,16 @@ class NetworkIsolation:
         self.network_cidr = network_settings.default_subnet
         self.create_tap_device = network_settings.create_tap_device
         self.enable_nat = network_settings.enable_nat
+        
+        # Network conditions simulation settings
+        self.simulate_conditions = network_settings.simulate_conditions
+        self.latency = network_settings.default_latency
+        self.jitter = network_settings.default_jitter
+        self.packet_loss = network_settings.default_packet_loss
+        self.packet_corruption = network_settings.default_packet_corruption
+        self.packet_reordering = network_settings.default_packet_reordering
+        self.bandwidth = network_settings.default_bandwidth
+        self.current_conditions_active = False
         
         # Extract network components from CIDR
         network_parts = self.network_cidr.split('/')
@@ -340,3 +350,305 @@ class NetworkIsolation:
                     f.write(f"{key}={value}\n")
         except Exception as e:
             logger.error(f"Failed to update environment file: {e}")
+
+    def setup_network_conditions(self, 
+                                latency: Optional[str] = None, 
+                                jitter: Optional[str] = None,
+                                packet_loss: Optional[float] = None,
+                                packet_corruption: Optional[float] = None,
+                                packet_reordering: Optional[float] = None,
+                                bandwidth: Optional[str] = None) -> bool:
+        """
+        Set up network condition simulation using traffic control.
+        
+        Args:
+            latency: Added latency (e.g., "100ms")
+            jitter: Jitter for latency (e.g., "10ms")
+            packet_loss: Packet loss as percentage (0-100)
+            packet_corruption: Packet corruption as percentage (0-100)
+            packet_reordering: Packet reordering as percentage (0-100)
+            bandwidth: Bandwidth limit (e.g., "1mbit")
+            
+        Returns:
+            bool: True if setup was successful, False otherwise
+        """
+        # Update parameters if provided
+        if latency is not None:
+            self.latency = latency
+        if jitter is not None:
+            self.jitter = jitter
+        if packet_loss is not None:
+            self.packet_loss = packet_loss
+        if packet_corruption is not None:
+            self.packet_corruption = packet_corruption
+        if packet_reordering is not None:
+            self.packet_reordering = packet_reordering
+        if bandwidth is not None:
+            self.bandwidth = bandwidth
+            
+        # Enable simulation
+        self.simulate_conditions = True
+        
+        log_status(f"Setting up network condition simulation...", Colors.YELLOW)
+        
+        # Clean up any existing conditions first
+        self.reset_network_conditions()
+        
+        if self.is_linux:
+            return self._setup_linux_network_conditions()
+        elif self.is_macos:
+            return self._setup_macos_network_conditions()
+        else:
+            log_status("Network condition simulation is only supported on Linux and macOS", Colors.RED)
+            return False
+            
+    def _setup_linux_network_conditions(self) -> bool:
+        """
+        Set up network condition simulation on Linux using tc.
+        
+        Returns:
+            bool: True if setup was successful, False otherwise
+        """
+        # Determine which interface to apply conditions to
+        target_interface = self.veth_namespace
+        
+        # Create commands to set up network conditions
+        # First, add the qdisc (tc requires this before adding rules)
+        rc, _, stderr = self._sudo_cmd([
+            "ip", "netns", "exec", self.namespace_name, 
+            "tc", "qdisc", "add", "dev", target_interface, "root", "netem"
+        ])
+        
+        if rc != 0:
+            logger.error(f"Failed to set up tc qdisc: {stderr}")
+            return False
+            
+        # Now, apply conditions (build the command based on what's enabled)
+        conditions_cmd = ["ip", "netns", "exec", self.namespace_name, "tc", "qdisc", "change", 
+                          "dev", target_interface, "root", "netem"]
+        
+        # Add latency and jitter if set
+        if self.latency:
+            conditions_cmd.extend(["delay", self.latency])
+            if self.jitter:
+                conditions_cmd.extend([self.jitter])
+                
+        # Add packet loss if set
+        if self.packet_loss > 0:
+            conditions_cmd.extend(["loss", f"{self.packet_loss}%"])
+            
+        # Add corruption if set
+        if self.packet_corruption > 0:
+            conditions_cmd.extend(["corrupt", f"{self.packet_corruption}%"])
+            
+        # Add reordering if set
+        if self.packet_reordering > 0:
+            conditions_cmd.extend(["reorder", f"{self.packet_reordering}%"])
+            
+        # Run the conditions command
+        rc, _, stderr = self._sudo_cmd(conditions_cmd)
+        if rc != 0:
+            logger.error(f"Failed to set up network conditions: {stderr}")
+            return False
+            
+        # If bandwidth is set, add a rate limit
+        if self.bandwidth:
+            # We need to use tbf (token bucket filter) for bandwidth limiting
+            # First remove the existing qdisc
+            self._sudo_cmd([
+                "ip", "netns", "exec", self.namespace_name, 
+                "tc", "qdisc", "del", "dev", target_interface, "root"
+            ])
+            
+            # Add tbf with the specified bandwidth
+            rc, _, stderr = self._sudo_cmd([
+                "ip", "netns", "exec", self.namespace_name, 
+                "tc", "qdisc", "add", "dev", target_interface, "root", "tbf", 
+                "rate", self.bandwidth, "burst", "32kbit", "latency", "400ms"
+            ])
+            
+            if rc != 0:
+                logger.error(f"Failed to set up bandwidth limit: {stderr}")
+                return False
+        
+        self.current_conditions_active = True
+        log_status(f"Network conditions applied: latency={self.latency}, jitter={self.jitter}, " +
+                  f"packet_loss={self.packet_loss}%, bandwidth={self.bandwidth}", Colors.GREEN)
+        return True
+    
+    def _setup_macos_network_conditions(self) -> bool:
+        """
+        Set up network condition simulation on macOS using pfctl and dummynet.
+        
+        Returns:
+            bool: True if setup was successful, False otherwise
+        """
+        # macOS uses dummynet for traffic shaping
+        # First, check if dummynet is loaded
+        rc, stdout, _ = self._sudo_cmd(["kldstat", "-m", "dummynet"])
+        if "dummynet" not in stdout:
+            # Load dummynet module
+            rc, _, stderr = self._sudo_cmd(["kldload", "dummynet"])
+            if rc != 0:
+                logger.error(f"Failed to load dummynet module: {stderr}")
+                return False
+        
+        # Create a pipe for traffic shaping
+        rc, _, stderr = self._sudo_cmd(["dnctl", "pipe", "1", "config"])
+        if rc != 0:
+            logger.error(f"Failed to create dummynet pipe: {stderr}")
+            return False
+        
+        # Configure pipe with network conditions
+        pipe_cmd = ["dnctl", "pipe", "1", "config"]
+        
+        # Add bandwidth limit if set
+        if self.bandwidth:
+            pipe_cmd.extend(["bw", self.bandwidth])
+            
+        # Add latency if set
+        if self.latency:
+            # Convert ms to number
+            latency_ms = int(self.latency.replace("ms", ""))
+            pipe_cmd.extend(["delay", str(latency_ms)])
+            
+        # Add packet loss if set
+        if self.packet_loss > 0:
+            pipe_cmd.extend(["plr", str(self.packet_loss / 100.0)])  # dummynet uses 0-1 range
+        
+        # Run the pipe configuration command
+        rc, _, stderr = self._sudo_cmd(pipe_cmd)
+        if rc != 0:
+            logger.error(f"Failed to configure dummynet pipe: {stderr}")
+            return False
+        
+        # Create pf rule to direct traffic to the pipe
+        pf_rule = f"dummynet out from {self.tap_ip} to any pipe 1\ndummynet in from any to {self.tap_ip} pipe 1"
+        pf_file = self.env_dir / "pf_dummynet.conf"
+        
+        with open(pf_file, "w") as f:
+            f.write(pf_rule)
+        
+        # Load the pf rule
+        rc, _, stderr = self._sudo_cmd(["pfctl", "-f", str(pf_file)])
+        if rc != 0:
+            logger.error(f"Failed to load pf rules for dummynet: {stderr}")
+            return False
+        
+        # Ensure pf is enabled
+        self._sudo_cmd(["pfctl", "-e"])
+        
+        self.current_conditions_active = True
+        log_status(f"Network conditions applied: latency={self.latency}, packet_loss={self.packet_loss}%, " +
+                  f"bandwidth={self.bandwidth}", Colors.GREEN)
+        return True
+    
+    def update_network_conditions(self, 
+                                 latency: Optional[str] = None, 
+                                 jitter: Optional[str] = None,
+                                 packet_loss: Optional[float] = None,
+                                 packet_corruption: Optional[float] = None,
+                                 packet_reordering: Optional[float] = None,
+                                 bandwidth: Optional[str] = None) -> bool:
+        """
+        Update existing network condition simulation parameters.
+        
+        Args:
+            latency: Added latency (e.g., "100ms")
+            jitter: Jitter for latency (e.g., "10ms")
+            packet_loss: Packet loss as percentage (0-100)
+            packet_corruption: Packet corruption as percentage (0-100)
+            packet_reordering: Packet reordering as percentage (0-100)
+            bandwidth: Bandwidth limit (e.g., "1mbit")
+            
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
+        # Update parameters if provided
+        if latency is not None:
+            self.latency = latency
+        if jitter is not None:
+            self.jitter = jitter
+        if packet_loss is not None:
+            self.packet_loss = packet_loss
+        if packet_corruption is not None:
+            self.packet_corruption = packet_corruption
+        if packet_reordering is not None:
+            self.packet_reordering = packet_reordering
+        if bandwidth is not None:
+            self.bandwidth = bandwidth
+        
+        # If conditions are already active, reapply with new settings
+        if self.current_conditions_active:
+            return self.setup_network_conditions()
+        else:
+            log_status("No active network conditions to update. Use setup_network_conditions first.", Colors.YELLOW)
+            return False
+    
+    def reset_network_conditions(self) -> bool:
+        """
+        Reset network conditions to normal operation (remove all simulated conditions).
+        
+        Returns:
+            bool: True if reset was successful, False otherwise
+        """
+        if not self.current_conditions_active:
+            logger.debug("No network conditions to reset")
+            return True
+            
+        log_status("Resetting network conditions...", Colors.YELLOW)
+        
+        if self.is_linux:
+            # Remove all tc qdiscs on the target interface
+            rc, _, stderr = self._sudo_cmd([
+                "ip", "netns", "exec", self.namespace_name, 
+                "tc", "qdisc", "del", "dev", self.veth_namespace, "root"
+            ])
+            
+            # It's okay if it fails because there might not be any qdiscs
+            if rc != 0:
+                logger.debug(f"No qdiscs to remove or error: {stderr}")
+                
+            # Add a default pfifo qdisc
+            self._sudo_cmd([
+                "ip", "netns", "exec", self.namespace_name, 
+                "tc", "qdisc", "add", "dev", self.veth_namespace, "root", "pfifo"
+            ])
+            
+        elif self.is_macos:
+            # Delete the dummynet pipe
+            self._sudo_cmd(["dnctl", "pipe", "1", "delete"])
+            
+            # Remove pf rules for dummynet
+            pf_file = self.env_dir / "pf_dummynet.conf"
+            if pf_file.exists():
+                with open(pf_file, "w") as f:
+                    f.write("# Empty ruleset for cleanup\n")
+                    
+                # Load the empty ruleset
+                self._sudo_cmd(["pfctl", "-f", str(pf_file)])
+                
+                # Remove the file
+                pf_file.unlink()
+        
+        self.current_conditions_active = False
+        log_status("Network conditions reset to normal", Colors.GREEN)
+        return True
+        
+    def get_current_network_conditions(self) -> Dict[str, Any]:
+        """
+        Get current network condition settings.
+        
+        Returns:
+            Dict[str, Any]: Dictionary of current network conditions
+        """
+        return {
+            "active": self.current_conditions_active,
+            "simulate_conditions": self.simulate_conditions,
+            "latency": self.latency,
+            "jitter": self.jitter,
+            "packet_loss": self.packet_loss,
+            "packet_corruption": self.packet_corruption,
+            "packet_reordering": self.packet_reordering,
+            "bandwidth": self.bandwidth
+        }

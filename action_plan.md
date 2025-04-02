@@ -229,6 +229,7 @@
   - ✅ Implemented cleanup_network function for removing namespaces
   - ✅ Added run_in_network function to run commands in isolated namespace
   - ✅ Implemented macOS network isolation with pf/dnctl
+  - ✅ Added network conditions simulation (latency, packet loss, bandwidth limits)
 - ✅ Step 2 - Extract VM Mode Functionality
   - ✅ Created VMManager class with VMConfig for configuration
   - ✅ Implemented setup_vm function for VM provisioning

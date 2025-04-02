@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 from .utils import (
     Colors, 
@@ -197,10 +197,13 @@ class SafeEnvironment:
         
         log_status("Garbage collection completed", Colors.GREEN)
     
-    def setup_network_isolation(self) -> bool:
+    def setup_network_isolation(self, sudo_password: Optional[str] = None) -> bool:
         """
         Set up network isolation for the environment.
         
+        Args:
+            sudo_password: Optional sudo password for privileged operations
+            
         Returns:
             bool: True if setup was successful, False otherwise
         """
@@ -208,7 +211,9 @@ class SafeEnvironment:
             logger.warning("Network isolation already set up")
             return True
             
-        self.network_isolation = NetworkIsolation(self.root_dir, self.sudo_password)
+        # Use provided sudo_password or the one set in the environment
+        sudo_pwd = sudo_password or self.sudo_password
+        self.network_isolation = NetworkIsolation(self.root_dir, sudo_pwd)
         if self.network_isolation.setup():
             self.network_enabled = True
             
@@ -218,6 +223,122 @@ class SafeEnvironment:
                 
             return True
         return False
+    
+    def setup_network_conditions(self, 
+                                latency: Optional[str] = None, 
+                                jitter: Optional[str] = None,
+                                packet_loss: Optional[float] = None,
+                                packet_corruption: Optional[float] = None,
+                                packet_reordering: Optional[float] = None,
+                                bandwidth: Optional[str] = None) -> bool:
+        """
+        Set up network condition simulation.
+        
+        Args:
+            latency: Added latency (e.g., "100ms")
+            jitter: Jitter for latency (e.g., "10ms")
+            packet_loss: Packet loss as percentage (0-100)
+            packet_corruption: Packet corruption as percentage (0-100)
+            packet_reordering: Packet reordering as percentage (0-100)
+            bandwidth: Bandwidth limit (e.g., "1mbit")
+            
+        Returns:
+            bool: True if setup was successful, False otherwise
+        """
+        if not self.network_enabled or self.network_isolation is None:
+            logger.error("Network isolation not enabled or not set up")
+            return False
+            
+        # Set up network conditions through the network isolation instance
+        result = self.network_isolation.setup_network_conditions(
+            latency=latency,
+            jitter=jitter,
+            packet_loss=packet_loss,
+            packet_corruption=packet_corruption,
+            packet_reordering=packet_reordering,
+            bandwidth=bandwidth
+        )
+        
+        if result:
+            # Add to environment variables
+            with open(self.root_dir / ".env", "a") as f:
+                f.write("NETWORK_CONDITIONS_ENABLED=true\n")
+                if latency:
+                    f.write(f"NETWORK_LATENCY={latency}\n")
+                if packet_loss:
+                    f.write(f"NETWORK_PACKET_LOSS={packet_loss}\n")
+                if bandwidth:
+                    f.write(f"NETWORK_BANDWIDTH={bandwidth}\n")
+                
+            log_status(f"Network conditions simulation enabled", Colors.GREEN)
+            return True
+            
+        return False
+        
+    def update_network_conditions(self,
+                                 latency: Optional[str] = None, 
+                                 jitter: Optional[str] = None,
+                                 packet_loss: Optional[float] = None,
+                                 packet_corruption: Optional[float] = None,
+                                 packet_reordering: Optional[float] = None,
+                                 bandwidth: Optional[str] = None) -> bool:
+        """
+        Update network condition simulation parameters.
+        
+        Args:
+            latency: Added latency (e.g., "100ms")
+            jitter: Jitter for latency (e.g., "10ms")
+            packet_loss: Packet loss as percentage (0-100)
+            packet_corruption: Packet corruption as percentage (0-100)
+            packet_reordering: Packet reordering as percentage (0-100)
+            bandwidth: Bandwidth limit (e.g., "1mbit")
+            
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
+        if not self.network_enabled or self.network_isolation is None:
+            logger.error("Network isolation not enabled or not set up")
+            return False
+            
+        return self.network_isolation.update_network_conditions(
+            latency=latency,
+            jitter=jitter,
+            packet_loss=packet_loss,
+            packet_corruption=packet_corruption,
+            packet_reordering=packet_reordering,
+            bandwidth=bandwidth
+        )
+        
+    def reset_network_conditions(self) -> bool:
+        """
+        Reset network conditions to normal operation.
+        
+        Returns:
+            bool: True if reset was successful, False otherwise
+        """
+        if not self.network_enabled or self.network_isolation is None:
+            logger.error("Network isolation not enabled or not set up")
+            return False
+            
+        result = self.network_isolation.reset_network_conditions()
+        
+        if result:
+            log_status("Network conditions reset to normal", Colors.GREEN)
+            
+        return result
+        
+    def get_network_conditions(self) -> Dict[str, Any]:
+        """
+        Get current network condition settings.
+        
+        Returns:
+            Dict[str, Any]: Dictionary of current network conditions or empty dict if not enabled
+        """
+        if not self.network_enabled or self.network_isolation is None:
+            logger.warning("Network isolation not enabled or not set up")
+            return {}
+            
+        return self.network_isolation.get_current_network_conditions()
     
     def setup_vm(self, 
                 memory: Optional[str] = None, 

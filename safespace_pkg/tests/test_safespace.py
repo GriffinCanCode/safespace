@@ -706,7 +706,7 @@ class TestResourceManager:
                         assert "nice" in call_args
 
 
-@pytest.mark.skipif(os.geteuid() != 0, reason="Network isolation tests require root privileges")
+@pytest.mark.skipif(os.geteuid() != 0 and not os.environ.get("USE_MOCKS"), reason="Network isolation tests require root privileges without mocks")
 class TestNetworkIsolation:
     """Tests for network isolation features"""
     
@@ -730,6 +730,426 @@ class TestNetworkIsolation:
             # Platform detection should work
             assert (net_isolation.is_linux == (platform.system() == "Linux"))
             assert (net_isolation.is_macos == (platform.system() == "Darwin"))
+            
+    def test_network_conditions_config(self):
+        """Test network conditions configuration"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Create a mock password for testing
+            test_password = "test_password"
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password=test_password)
+            
+            # Check default network conditions
+            assert net_isolation.simulate_conditions is False
+            assert net_isolation.latency == "50ms"  # Default from settings
+            assert net_isolation.packet_loss == 0.0
+            assert net_isolation.bandwidth == "10mbit"
+            
+            # Test updating network conditions
+            net_isolation.latency = "100ms"
+            net_isolation.packet_loss = 5.0
+            net_isolation.bandwidth = "5mbit"
+            
+            # Check updated values
+            assert net_isolation.latency == "100ms"
+            assert net_isolation.packet_loss == 5.0
+            assert net_isolation.bandwidth == "5mbit"
+            
+            # Test get_current_network_conditions
+            conditions = net_isolation.get_current_network_conditions()
+            assert conditions["latency"] == "100ms"
+            assert conditions["packet_loss"] == 5.0
+            assert conditions["bandwidth"] == "5mbit"
+            assert conditions["active"] is False
+
+    @pytest.mark.integration
+    def test_network_conditions_setup(self):
+        """Test setting up network conditions (with mocks)"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Create a mock password for testing
+            test_password = "test_password"
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password=test_password)
+            
+            # Mock the sudo command to avoid actual system changes
+            with mock.patch.object(net_isolation, '_sudo_cmd') as mock_sudo:
+                # Configure mock to return success for all commands
+                mock_sudo.return_value = (0, "", "")
+                
+                # For Linux
+                if net_isolation.is_linux:
+                    # Test setup with just latency
+                    result = net_isolation.setup_network_conditions(latency="200ms")
+                    assert result is True
+                    assert mock_sudo.called
+                    
+                    # Reset mocks
+                    mock_sudo.reset_mock()
+                    
+                    # Test setup with multiple conditions
+                    result = net_isolation.setup_network_conditions(
+                        latency="100ms",
+                        jitter="20ms",
+                        packet_loss=10.0,
+                        packet_corruption=5.0,
+                        bandwidth="2mbit"
+                    )
+                    assert result is True
+                    assert mock_sudo.called
+                    
+                    # Reset mocks
+                    mock_sudo.reset_mock()
+                    
+                    # Test reset
+                    result = net_isolation.reset_network_conditions()
+                    assert result is True
+                    assert mock_sudo.called
+                
+                # For macOS
+                elif net_isolation.is_macos:
+                    # Test setup with just latency and bandwidth
+                    result = net_isolation.setup_network_conditions(
+                        latency="200ms",
+                        bandwidth="5mbit"
+                    )
+                    assert result is True
+                    assert mock_sudo.called
+                    
+                    # Reset mocks
+                    mock_sudo.reset_mock()
+                    
+                    # Test reset
+                    result = net_isolation.reset_network_conditions()
+                    assert result is True
+                    assert mock_sudo.called
+
+    @pytest.mark.integration
+    def test_network_conditions_update(self):
+        """Test updating network conditions"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Create a mock password for testing
+            test_password = "test_password"
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password=test_password)
+            
+            # Mock the sudo command to avoid actual system changes
+            with mock.patch.object(net_isolation, '_sudo_cmd') as mock_sudo:
+                # Configure mock to return success for all commands
+                mock_sudo.return_value = (0, "", "")
+                
+                # Setup initial conditions
+                result = net_isolation.setup_network_conditions(
+                    latency="100ms",
+                    packet_loss=1.0,
+                    bandwidth="10mbit"
+                )
+                assert result is True
+                
+                # Reset mocks for better tracking
+                mock_sudo.reset_mock()
+                
+                # Update conditions
+                result = net_isolation.update_network_conditions(
+                    latency="200ms",
+                    packet_loss=5.0,
+                    bandwidth="5mbit"
+                )
+                assert result is True
+                assert mock_sudo.called
+                
+                # Check updated values
+                conditions = net_isolation.get_current_network_conditions()
+                assert conditions["latency"] == "200ms"
+                assert conditions["packet_loss"] == 5.0
+                assert conditions["bandwidth"] == "5mbit"
+                assert conditions["active"] is True
+
+    @pytest.mark.integration
+    def test_network_conditions_linux_commands(self):
+        """Test Linux-specific network condition commands"""
+        # Skip if not on Linux
+        if platform.system() != "Linux":
+            pytest.skip("Linux-specific test")
+            
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password="test_password")
+            
+            # Mock the sudo command to validate command construction
+            with mock.patch.object(net_isolation, '_sudo_cmd') as mock_sudo:
+                mock_sudo.return_value = (0, "", "")
+                
+                # Set up conditions
+                net_isolation.setup_network_conditions(
+                    latency="100ms",
+                    jitter="20ms",
+                    packet_loss=10.0,
+                    packet_corruption=2.0,
+                    packet_reordering=5.0,
+                    bandwidth="5mbit"
+                )
+                
+                # Check that the correct tc commands were called
+                # First call should add the qdisc
+                assert "tc" in mock_sudo.call_args_list[0][0][0]
+                assert "qdisc" in mock_sudo.call_args_list[0][0][0]
+                assert "add" in mock_sudo.call_args_list[0][0][0]
+                assert "netem" in mock_sudo.call_args_list[0][0][0]
+                
+                # Second call should apply the conditions
+                assert "tc" in mock_sudo.call_args_list[1][0][0]
+                assert "qdisc" in mock_sudo.call_args_list[1][0][0]
+                assert "change" in mock_sudo.call_args_list[1][0][0]
+                assert "netem" in mock_sudo.call_args_list[1][0][0]
+                assert "delay" in mock_sudo.call_args_list[1][0][0]
+                assert "100ms" in mock_sudo.call_args_list[1][0][0]
+                assert "20ms" in mock_sudo.call_args_list[1][0][0]
+                assert "loss" in mock_sudo.call_args_list[1][0][0]
+                assert "10.0%" in mock_sudo.call_args_list[1][0][0]
+                assert "corrupt" in mock_sudo.call_args_list[1][0][0]
+                assert "2.0%" in mock_sudo.call_args_list[1][0][0]
+                assert "reorder" in mock_sudo.call_args_list[1][0][0]
+                assert "5.0%" in mock_sudo.call_args_list[1][0][0]
+                
+                # Reset should be called to remove qdiscs
+                mock_sudo.reset_mock()
+                net_isolation.reset_network_conditions()
+                
+                # Check that qdisc del was called
+                assert "tc" in mock_sudo.call_args_list[0][0][0]
+                assert "qdisc" in mock_sudo.call_args_list[0][0][0]
+                assert "del" in mock_sudo.call_args_list[0][0][0]
+
+    @pytest.mark.integration
+    def test_network_conditions_macos_commands(self):
+        """Test macOS-specific network condition commands"""
+        # Skip if not on macOS
+        if platform.system() != "Darwin":
+            pytest.skip("macOS-specific test")
+            
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password="test_password")
+            
+            # Mock the sudo command to validate command construction
+            with mock.patch.object(net_isolation, '_sudo_cmd') as mock_sudo:
+                # First call will check if dummynet is loaded
+                # If not found, it will try to load it
+                mock_sudo.return_value = (0, "", "")
+                
+                # Set up conditions
+                net_isolation.setup_network_conditions(
+                    latency="100ms",
+                    packet_loss=10.0,
+                    bandwidth="5mbit"
+                )
+                
+                # Check the calls
+                call_commands = [args[0][0] for args in mock_sudo.call_args_list]
+                
+                # First call should check if dummynet is loaded
+                assert "kldstat" in call_commands[0]
+                
+                # If kldstat doesn't find dummynet, it would load it
+                # We need to handle both cases: when dummynet is already loaded or not
+                
+                pipe_config_index = 1
+                if len(call_commands) > 1 and "kldload" in call_commands[1]:
+                    # If dummynet needed to be loaded, pipe commands start at index 2
+                    pipe_config_index = 2
+                
+                # Validate pipe creation and configuration
+                # This might be in different positions depending on whether dummynet was loaded
+                pipe_commands = [cmd for cmd in call_commands if "dnctl" in cmd or "pipe" in cmd]
+                assert len(pipe_commands) >= 2, "Missing pipe configuration commands"
+                
+                # Check pfctl command for loading rules
+                pfctl_commands = [cmd for cmd in call_commands if "pfctl" in cmd]
+                assert len(pfctl_commands) >= 1, "Missing pfctl command"
+                
+                # Reset should clean up the pipe
+                mock_sudo.reset_mock()
+                net_isolation.reset_network_conditions()
+                
+                # Check that pipe delete was called
+                delete_commands = [args[0][0] for args in mock_sudo.call_args_list]
+                dnctl_commands = [cmd for cmd in delete_commands if "dnctl" in cmd]
+                assert len(dnctl_commands) >= 1, "Missing dnctl pipe delete command"
+
+    @pytest.mark.integration
+    def test_network_conditions_with_environment(self):
+        """Test network conditions in a SafeEnvironment context"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            
+            # Create SafeEnvironment with network isolation
+            with mock.patch.object(NetworkIsolation, 'setup') as mock_setup, \
+                 mock.patch.object(NetworkIsolation, 'setup_network_conditions') as mock_conditions, \
+                 mock.patch.object(NetworkIsolation, 'cleanup') as mock_cleanup:
+                
+                # Mock return values
+                mock_setup.return_value = True
+                mock_conditions.return_value = True
+                mock_cleanup.return_value = True
+                
+                # Initialize environment
+                env = SafeEnvironment(root_dir=env_dir)
+                env.create()
+                
+                # Setup network isolation
+                result = env.setup_network_isolation(sudo_password="test_password")
+                assert result is True
+                assert mock_setup.called
+                
+                # Apply network conditions
+                # Note: This assumes SafeEnvironment has a setup_network_conditions method
+                # If not, you'll need to modify this test or implement that method
+                network_conditions = {
+                    "latency": "150ms",
+                    "jitter": "30ms",
+                    "packet_loss": 7.5,
+                    "bandwidth": "3mbit"
+                }
+                
+                # Access network_isolation directly instead
+                env.network_isolation.setup_network_conditions(**network_conditions)
+                assert mock_conditions.called
+                
+                # Cleanup should be called when environment is cleaned up
+                env.cleanup()
+                assert mock_cleanup.called
+    
+    @pytest.mark.parametrize("latency,jitter,packet_loss,packet_corruption,packet_reordering,bandwidth", [
+        # Test just latency
+        ("100ms", None, None, None, None, None),
+        # Test latency and jitter
+        ("100ms", "10ms", None, None, None, None),
+        # Test packet loss
+        (None, None, 5.0, None, None, None),
+        # Test bandwidth
+        (None, None, None, None, None, "5mbit"),
+        # Test corruption
+        (None, None, None, 2.0, None, None),
+        # Test reordering
+        (None, None, None, None, 3.0, None),
+        # Test all parameters
+        ("200ms", "30ms", 10.0, 5.0, 7.0, "2mbit"),
+    ])
+    def test_network_conditions_parameters(self, latency, jitter, packet_loss, packet_corruption, packet_reordering, bandwidth):
+        """Test different combinations of network condition parameters"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password="test_password")
+            
+            # Mock the setup methods to avoid actual system changes
+            with mock.patch.object(net_isolation, '_setup_linux_network_conditions') as mock_linux, \
+                 mock.patch.object(net_isolation, '_setup_macos_network_conditions') as mock_macos, \
+                 mock.patch.object(net_isolation, 'reset_network_conditions') as mock_reset:
+                
+                # Configure mocks
+                mock_linux.return_value = True
+                mock_macos.return_value = True
+                mock_reset.return_value = True
+                
+                # Setup with the parameterized conditions
+                params = {}
+                if latency is not None:
+                    params["latency"] = latency
+                if jitter is not None:
+                    params["jitter"] = jitter
+                if packet_loss is not None:
+                    params["packet_loss"] = packet_loss
+                if packet_corruption is not None:
+                    params["packet_corruption"] = packet_corruption
+                if packet_reordering is not None:
+                    params["packet_reordering"] = packet_reordering
+                if bandwidth is not None:
+                    params["bandwidth"] = bandwidth
+                
+                result = net_isolation.setup_network_conditions(**params)
+                assert result is True
+                
+                # Check that previous conditions were reset
+                assert mock_reset.called
+                
+                # Check that the platform-specific setup was called
+                if net_isolation.is_linux:
+                    assert mock_linux.called
+                    assert not mock_macos.called
+                elif net_isolation.is_macos:
+                    assert not mock_linux.called
+                    assert mock_macos.called
+                
+                # Verify parameters were set correctly
+                conditions = net_isolation.get_current_network_conditions()
+                
+                if latency is not None:
+                    assert conditions["latency"] == latency
+                if jitter is not None:
+                    assert conditions["jitter"] == jitter
+                if packet_loss is not None:
+                    assert conditions["packet_loss"] == packet_loss
+                if packet_corruption is not None:
+                    assert conditions["packet_corruption"] == packet_corruption
+                if packet_reordering is not None:
+                    assert conditions["packet_reordering"] == packet_reordering
+                if bandwidth is not None:
+                    assert conditions["bandwidth"] == bandwidth
+    
+    def test_network_conditions_failed_setup(self):
+        """Test handling of failures during network conditions setup"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_dir = Path(temp_dir) / "env"
+            env_dir.mkdir()
+            
+            # Initialize network isolation
+            net_isolation = NetworkIsolation(env_dir, sudo_password="test_password")
+            
+            # Mock to simulate failure
+            if net_isolation.is_linux:
+                with mock.patch.object(net_isolation, '_setup_linux_network_conditions') as mock_setup:
+                    mock_setup.return_value = False
+                    
+                    # Attempt to setup conditions
+                    result = net_isolation.setup_network_conditions(latency="100ms")
+                    assert result is False
+                    assert mock_setup.called
+                    
+                    # Conditions should not be marked as active
+                    assert net_isolation.current_conditions_active is False
+            
+            elif net_isolation.is_macos:
+                with mock.patch.object(net_isolation, '_setup_macos_network_conditions') as mock_setup:
+                    mock_setup.return_value = False
+                    
+                    # Attempt to setup conditions
+                    result = net_isolation.setup_network_conditions(latency="100ms")
+                    assert result is False
+                    assert mock_setup.called
+                    
+                    # Conditions should not be marked as active
+                    assert net_isolation.current_conditions_active is False
 
 
 @pytest.mark.skipif(not shutil.which("qemu-system-x86_64"), reason="VM tests require QEMU")
