@@ -51,6 +51,7 @@ Thumbs.db
 
 # Additional patterns from scan
 *auth*
+action_plan.md
 *token*
 .dll
 .exe

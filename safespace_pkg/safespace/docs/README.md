@@ -13,27 +13,38 @@ This directory contains documentation for the SafeSpace package.
 The documentation can be accessed through the CLI using several options:
 
 ```bash
-# Show the main documentation menu
+# Show the main documentation menu (interactive mode by default)
+safespace wordspace
+safespace ws
 safespace --wordspace
+safespace --ws
 
 # Show a specific section
+safespace wordspace --section <section_id>
+safespace ws --section <section_id>
 safespace --wordspace-section <section_id>
 
 # Show a specific subsection within a section
+safespace wordspace --section <section_id> --subsection <subsection_id>
+safespace ws --section <section_id> --subsection <subsection_id>
 safespace --wordspace-section <section_id> --wordspace-subsection <subsection_id>
 
 # Show the documentation as a tree
+safespace wordspace --tree
+safespace ws --tree
 safespace --wordspace-tree
 
-# Use the interactive documentation browser
+# Disable interactive mode
+safespace wordspace --no-interactive
+safespace ws --no-interactive
 safespace --wordspace-interactive
 ```
 
 ### Interactive Mode
 
-The interactive mode allows you to navigate through the documentation using keyboard commands:
-- Enter a section ID to view that section
-- Enter a subsection ID to view that subsection
+The interactive mode is enabled by default and allows you to navigate through the documentation using keyboard commands:
+- Enter a section ID or number to view that section
+- Enter a subsection ID or number to view that subsection
 - Press 'b' to go back to the previous page
 - Press 't' to view the tree of all sections (from the main menu)
 - Press 'q' to quit the interactive browser
@@ -96,7 +107,6 @@ The documentation now includes navigation links that help you move between secti
 
 ### Advanced Usage
 - `custom-templates`: Creating custom templates
-- `ci-cd-integration`: Integrating with CI/CD pipelines
 - `network-configuration`: Advanced network configuration
 - `vm-configuration`: Advanced VM configuration
 - `container-configuration`: Advanced container configuration

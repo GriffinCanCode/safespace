@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 @click.option("--cpus", type=int, help="Specify number of CPUs for VM")
 @click.option("--disk", help="Specify VM disk size (e.g., '20G')")
 @click.option("--debug", is_flag=True, help="Enable debug logging")
-@click.option("--wordspace", is_flag=True, help="Show comprehensive documentation")
+@click.option("--wordspace", "--ws", is_flag=True, help="Show comprehensive documentation")
 @click.option("--wordspace-section", help="Show specific documentation section")
 @click.option("--wordspace-subsection", help="Show specific documentation subsection")
 @click.option("--wordspace-tree", is_flag=True, help="Show documentation in tree view")
@@ -98,7 +98,7 @@ def main(
             section_id=wordspace_section or (None if not wordspace else "core-concepts"),
             subsection_id=wordspace_subsection,
             tree_view=wordspace_tree,
-            interactive=wordspace_interactive
+            interactive=wordspace_interactive or (not wordspace_tree and wordspace_section is None)
         )
         sys.exit(0)
     
@@ -298,7 +298,6 @@ def run_in_environment(
         log_status("\nEnhanced Development Environment:", Colors.GREEN)
         log_status("  - IDE support: VS Code settings in .vscode/", Colors.GREEN)
         log_status("  - Git hooks: Pre-commit configuration in .pre-commit-config.yaml", Colors.GREEN)
-        log_status("  - CI/CD: GitHub Actions workflows in .github/workflows/", Colors.GREEN)
         log_status("  - Development scripts:", Colors.GREEN)
         log_status("    - scripts/setup_dev.sh - Set up development environment", Colors.GREEN)
         log_status("    - scripts/update_deps.sh - Update dependencies", Colors.GREEN)
@@ -354,6 +353,66 @@ def internal(ctx: click.Context, cleanup: bool) -> None:
         else:
             log_status("Failed to create internal environment", Colors.RED)
             sys.exit(1)
+
+@main.command(name="wordspace")
+@click.option("--section", help="Show specific documentation section")
+@click.option("--subsection", help="Show specific documentation subsection")
+@click.option("--tree", is_flag=True, help="Show documentation in tree view")
+@click.option("--no-interactive", is_flag=True, help="Disable interactive mode")
+@click.pass_context
+def wordspace_command(ctx: click.Context, section: Optional[str] = None, 
+                      subsection: Optional[str] = None, tree: bool = False, 
+                      no_interactive: bool = False) -> None:
+    """Show comprehensive documentation"""
+    # Import the documentation CLI module
+    from .docs.documentation_cli import display_documentation
+    
+    # If subsection is specified but section is not, show an error
+    if subsection is not None and section is None:
+        click.echo(click.style(
+            "Error: --subsection requires --section",
+            fg="red"
+        ))
+        sys.exit(1)
+    
+    # Call the documentation display function with all options
+    display_documentation(
+        section_id=section or "core-concepts",
+        subsection_id=subsection,
+        tree_view=tree,
+        interactive=not (tree or no_interactive)
+    )
+    sys.exit(0)
+
+@main.command(name="ws")
+@click.option("--section", help="Show specific documentation section")
+@click.option("--subsection", help="Show specific documentation subsection")
+@click.option("--tree", is_flag=True, help="Show documentation in tree view")
+@click.option("--no-interactive", is_flag=True, help="Disable interactive mode")
+@click.pass_context
+def ws_command(ctx: click.Context, section: Optional[str] = None, 
+              subsection: Optional[str] = None, tree: bool = False, 
+              no_interactive: bool = False) -> None:
+    """Show comprehensive documentation (shorthand for wordspace)"""
+    # Import the documentation CLI module
+    from .docs.documentation_cli import display_documentation
+    
+    # If subsection is specified but section is not, show an error
+    if subsection is not None and section is None:
+        click.echo(click.style(
+            "Error: --subsection requires --section",
+            fg="red"
+        ))
+        sys.exit(1)
+    
+    # Call the documentation display function with all options
+    display_documentation(
+        section_id=section or "core-concepts",
+        subsection_id=subsection,
+        tree_view=tree,
+        interactive=not (tree or no_interactive)
+    )
+    sys.exit(0)
 
 @main.command()
 @click.pass_context

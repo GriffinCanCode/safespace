@@ -193,12 +193,14 @@ def display_section(section: Dict[str, Any], console: Console, docs: Dict[str, A
         # Display a table of subsections
         console.print("\n[bold]Subsections:[/bold]")
         subsection_table = Table(show_header=True, box=box.ROUNDED)
+        subsection_table.add_column("#", style="yellow", justify="right")
         subsection_table.add_column("ID", style="cyan")
         subsection_table.add_column("Title", style="green")
         
-        for subsection in section["subsections"]:
+        for idx, subsection in enumerate(section["subsections"], 1):
             subsection_id = subsection.get("id", "")
             subsection_table.add_row(
+                str(idx),
                 subsection_id,
                 subsection["title"]
             )
@@ -206,8 +208,10 @@ def display_section(section: Dict[str, Any], console: Console, docs: Dict[str, A
         console.print(subsection_table)
         
         # Show usage hint
-        console.print("\n[bold]Usage:[/bold] safespace --wordspace-section " + 
-                     f"{section['id']} --wordspace-subsection <subsection_id>")
+        console.print("\n[bold]Usage:[/bold]")
+        console.print(f"  safespace wordspace --section {section['id']} --subsection <subsection_id>")
+        console.print(f"  safespace ws --section {section['id']} --subsection <subsection_id>")
+        console.print(f"  safespace --wordspace-section {section['id']} --wordspace-subsection <subsection_id>")
 
 def display_menu(docs: Dict[str, Any], console: Console) -> None:
     """
@@ -227,12 +231,14 @@ def display_menu(docs: Dict[str, Any], console: Console) -> None:
     console.print("\n[bold]Available Sections:[/bold]")
     
     section_table = Table(show_header=True, box=box.ROUNDED)
+    section_table.add_column("#", style="yellow", justify="right")
     section_table.add_column("ID", style="cyan")
     section_table.add_column("Title", style="green")
     section_table.add_column("Description", style="yellow")
     
-    for section in docs["sections"]:
+    for idx, section in enumerate(docs["sections"], 1):
         section_table.add_row(
+            str(idx),
             section["id"],
             section["title"],
             section["content"].split("\n")[0]
@@ -240,11 +246,26 @@ def display_menu(docs: Dict[str, Any], console: Console) -> None:
     
     console.print(section_table)
     console.print("\n[bold]Usage:[/bold]")
-    console.print("  safespace --wordspace [section_id]")
+    console.print("  safespace wordspace")
+    console.print("  safespace ws")
+    console.print("  safespace --wordspace")
+    console.print("  safespace --ws")
+    console.print("\n[bold]View Section:[/bold]")
+    console.print("  safespace wordspace --section [section_id]")
+    console.print("  safespace ws --section [section_id]")
     console.print("  safespace --wordspace-section [section_id]")
+    console.print("\n[bold]View Subsection:[/bold]")
+    console.print("  safespace wordspace --section [section_id] --subsection [subsection_id]")
+    console.print("  safespace ws --section [section_id] --subsection [subsection_id]")
     console.print("  safespace --wordspace-section [section_id] --wordspace-subsection [subsection_id]")
+    console.print("\n[bold]Tree View:[/bold]")
+    console.print("  safespace wordspace --tree")
+    console.print("  safespace ws --tree")
     console.print("  safespace --wordspace-tree")
-    console.print("  safespace --wordspace-interactive")
+    console.print("\n[bold]Non-Interactive Mode:[/bold]")
+    console.print("  safespace wordspace --no-interactive")
+    console.print("  safespace ws --no-interactive")
+    console.print("  safespace --wordspace --no-interactive")
 
 def display_section_tree(docs: Dict[str, Any], console: Console) -> None:
     """
@@ -298,12 +319,12 @@ def run_interactive_mode(docs: Dict[str, Any]) -> None:
         # Display current content
         if current_section is None:
             display_menu(docs, console)
-            prompt = "Enter section ID (or 'q' to quit, 't' for tree view): "
+            prompt = "Enter section # or ID (or 'q' to quit, 't' for tree view): "
         elif current_subsection is None:
             section = find_section_by_id(docs, current_section)
             if section:
                 display_section(section, console, docs)
-                prompt = "Enter subsection ID (or 'b' to go back, 'q' to quit): "
+                prompt = "Enter subsection # or ID (or 'b' to go back, 'q' to quit): "
             else:
                 console.print(f"[bold red]Section '{current_section}' not found.[/bold red]")
                 current_section = None
@@ -345,6 +366,16 @@ def run_interactive_mode(docs: Dict[str, Any]) -> None:
             input("Press Enter to continue...")
         elif current_section is None:
             # Trying to navigate to a section
+            # First try to see if it's a number
+            try:
+                idx = int(user_input) - 1
+                if 0 <= idx < len(docs["sections"]):
+                    current_section = docs["sections"][idx]["id"]
+                    continue
+            except ValueError:
+                pass
+            
+            # If not a number or out of range, try as an ID
             section = find_section_by_id(docs, user_input)
             if section:
                 current_section = user_input
@@ -354,7 +385,18 @@ def run_interactive_mode(docs: Dict[str, Any]) -> None:
         elif current_subsection is None:
             # Trying to navigate to a subsection
             section = find_section_by_id(docs, current_section)
-            if section:
+            if section and "subsections" in section and section["subsections"]:
+                # First try to see if it's a number
+                try:
+                    idx = int(user_input) - 1
+                    if 0 <= idx < len(section["subsections"]):
+                        history.append((current_section, current_subsection))
+                        current_subsection = section["subsections"][idx].get("id", "")
+                        continue
+                except ValueError:
+                    pass
+                
+                # If not a number or out of range, try as an ID
                 subsection = find_subsection_by_id(section, user_input)
                 if subsection:
                     history.append((current_section, current_subsection))
@@ -363,14 +405,14 @@ def run_interactive_mode(docs: Dict[str, Any]) -> None:
                     console.print(f"[bold red]Subsection '{user_input}' not found.[/bold red]")
                     input("Press Enter to continue...")
             else:
-                console.print(f"[bold red]Section '{current_section}' not found.[/bold red]")
-                current_section = None
+                console.print(f"[bold red]Section '{current_section}' has no subsections.[/bold red]")
+                input("Press Enter to continue...")
         else:
             # Already at subsection level, any input goes back
             current_subsection = None
 
 def display_documentation(section_id: Optional[str] = None, subsection_id: Optional[str] = None,
-                        tree_view: bool = False, interactive: bool = False) -> None:
+                        tree_view: bool = False, interactive: bool = True) -> None:
     """
     Display the documentation.
     
@@ -378,7 +420,7 @@ def display_documentation(section_id: Optional[str] = None, subsection_id: Optio
         section_id: The ID of the section to display (if None, display menu)
         subsection_id: The ID of the subsection to display (requires section_id)
         tree_view: Whether to display a tree view of all sections
-        interactive: Whether to run in interactive mode
+        interactive: Whether to run in interactive mode (default: True)
     """
     console = Console()
     docs = load_documentation()
@@ -405,14 +447,14 @@ def main() -> None:
     parser.add_argument("section", nargs="?", help="Section ID to display")
     parser.add_argument("--tree", action="store_true", help="Display a tree view of all sections")
     parser.add_argument("--subsection", help="Subsection ID to display")
-    parser.add_argument("--interactive", action="store_true", help="Run in interactive mode")
+    parser.add_argument("--no-interactive", action="store_true", help="Disable interactive mode")
     
     args = parser.parse_args()
     display_documentation(
         args.section, 
         args.subsection, 
         args.tree, 
-        args.interactive
+        interactive=not (args.tree or args.no_interactive)
     )
 
 if __name__ == "__main__":
