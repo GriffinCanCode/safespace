@@ -11,6 +11,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Any
+import uuid
 
 from .utils import (
     Colors, 
@@ -29,6 +30,7 @@ from .vm import VMManager, VMConfig
 from .container import ContainerManager, ContainerConfig
 from .testing import TestEnvironment
 from .settings import get_settings
+from .state_db import get_state_db
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -40,7 +42,10 @@ class SafeEnvironment:
         self, 
         root_dir: Optional[Path] = None, 
         internal_mode: bool = False,
-        sudo_password: Optional[str] = None
+        sudo_password: Optional[str] = None,
+        persistent: bool = False,
+        env_id: Optional[str] = None,
+        env_name: Optional[str] = None
     ) -> None:
         """Initialize a safe environment"""
         # Get settings
@@ -58,6 +63,11 @@ class SafeEnvironment:
         self.test_environment: Optional[TestEnvironment] = None
         self.comprehensive_test_enabled = False
         self.enhanced_dev_enabled = False
+        
+        # Persistence settings
+        self.persistent = persistent
+        self.env_id = env_id or str(uuid.uuid4())
+        self.env_name = env_name
         
         # Create or set the root directory
         if root_dir is None:
@@ -114,6 +124,10 @@ class SafeEnvironment:
         # Create environment variables file
         self._create_env_file()
         
+        # If persistent mode is enabled, save the initial state
+        if self.persistent:
+            self.save_state()
+        
         log_status(f"Safe environment created successfully at {self.root_dir}", Colors.GREEN)
         return True
     
@@ -127,6 +141,13 @@ class SafeEnvironment:
             "SAFE_ENV_TMP": str(self.root_dir / "tmp"),
             "SAFE_ENV_CREATED_AT": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         }
+        
+        # Add persistence information if enabled
+        if self.persistent:
+            self.env_vars["SAFE_ENV_PERSISTENT"] = "true"
+            self.env_vars["SAFE_ENV_ID"] = self.env_id
+            if self.env_name:
+                self.env_vars["SAFE_ENV_NAME"] = self.env_name
         
         env_file = self.root_dir / ".env"
         with open(env_file, "w") as f:
@@ -634,6 +655,15 @@ class SafeEnvironment:
         if self.internal_mode and not keep_dir:
             return
         
+        # If persistent mode is enabled, save the final state
+        if self.persistent:
+            self.save_state()
+            log_status(f"Environment preserved for future use. ID: {self.env_id}", Colors.GREEN)
+            if self.env_name:
+                log_status(f"Name: {self.env_name}", Colors.GREEN)
+            # Don't remove the directory in persistent mode
+            return
+        
         # Kill any processes still using the directory
         if self.root_dir.exists():
             # This uses lsof on Unix systems to find processes using the directory
@@ -659,6 +689,141 @@ class SafeEnvironment:
                 if self.sudo_password:
                     # Try with sudo
                     sudo_command(f"rm -rf {self.root_dir}", self.sudo_password)
+    
+    def save_state(self) -> bool:
+        """
+        Save the current environment state to the database.
+        Only available in persistent mode.
+        
+        Returns:
+            bool: True if state was saved successfully, False otherwise
+        """
+        if not self.persistent:
+            logger.warning("Cannot save state: Environment is not in persistent mode")
+            return False
+            
+        # Collect state information
+        state = {
+            "env_vars": self.env_vars,
+            "network_enabled": self.network_enabled,
+            "vm_enabled": self.vm_enabled,
+            "container_enabled": self.container_enabled,
+            "comprehensive_test_enabled": self.comprehensive_test_enabled,
+            "enhanced_dev_enabled": self.enhanced_dev_enabled,
+        }
+        
+        # Collect metadata
+        metadata = {
+            "internal_mode": self.internal_mode,
+            "created_at": self.env_vars.get("SAFE_ENV_CREATED_AT", datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")),
+            "last_saved": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        }
+        
+        # Save to database
+        db = get_state_db()
+        result = db.save_environment(
+            env_id=self.env_id,
+            name=self.env_name,
+            root_dir=self.root_dir,
+            state=state,
+            metadata=metadata
+        )
+        
+        if result:
+            log_status(f"Environment state saved successfully with ID: {self.env_id}", Colors.GREEN)
+        else:
+            log_status("Failed to save environment state", Colors.RED)
+            
+        return result
+    
+    @classmethod
+    def load_from_state(cls, 
+                       env_id: Optional[str] = None, 
+                       env_name: Optional[str] = None) -> Optional['SafeEnvironment']:
+        """
+        Load an environment from a saved state.
+        
+        Args:
+            env_id: The ID of the environment to load
+            env_name: The name of the environment to load
+            
+        Returns:
+            SafeEnvironment instance if found, None otherwise
+        """
+        if not env_id and not env_name:
+            logger.error("Either env_id or env_name must be provided")
+            return None
+            
+        # Load from database
+        db = get_state_db()
+        env_data = db.get_environment(env_id=env_id, name=env_name)
+        
+        if not env_data:
+            return None
+            
+        # Extract data
+        state = env_data['state']
+        metadata = env_data['metadata']
+        root_dir = Path(env_data['root_dir'])
+        
+        # Check if directory exists
+        if not root_dir.exists():
+            log_status(f"Environment directory {root_dir} does not exist", Colors.RED)
+            return None
+            
+        # Create environment instance
+        env = cls(
+            root_dir=root_dir,
+            internal_mode=metadata.get('internal_mode', False),
+            persistent=True,
+            env_id=env_data['id'],
+            env_name=env_data['name']
+        )
+        
+        # Restore state
+        env.env_vars = state.get('env_vars', {})
+        env.network_enabled = state.get('network_enabled', False)
+        env.vm_enabled = state.get('vm_enabled', False)
+        env.container_enabled = state.get('container_enabled', False)
+        env.comprehensive_test_enabled = state.get('comprehensive_test_enabled', False)
+        env.enhanced_dev_enabled = state.get('enhanced_dev_enabled', False)
+        
+        log_status(f"Environment loaded successfully from state: {env_data['id']}", Colors.GREEN)
+        return env
+    
+    @staticmethod
+    def list_saved_environments() -> List[Dict[str, Any]]:
+        """
+        List all saved environments.
+        
+        Returns:
+            List of dictionaries containing environment summary information
+        """
+        db = get_state_db()
+        environments = db.list_environments()
+        return environments
+    
+    def delete_saved_state(self) -> bool:
+        """
+        Delete this environment's saved state from the database.
+        Does not delete the actual environment directory.
+        
+        Returns:
+            bool: True if deletion was successful, False otherwise
+        """
+        if not self.persistent:
+            logger.warning("Environment is not in persistent mode")
+            return False
+            
+        db = get_state_db()
+        result = db.delete_environment(self.env_id)
+        
+        if result:
+            log_status(f"Environment state deleted: {self.env_id}", Colors.GREEN)
+        else:
+            log_status(f"Failed to delete environment state: {self.env_id}", Colors.RED)
+            
+        return result
     
     def setup_internal(self) -> bool:
         """Set up an internal testing environment"""

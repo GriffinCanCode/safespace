@@ -20,6 +20,7 @@ A comprehensive environment isolation and testing tool that creates secure, isol
 | **VM Integration** | Lightweight virtual machines for complete isolation | ✅ Implemented |
 | **Testing Framework** | Comprehensive testing environments | ✅ Implemented |
 | **Dependency Management** | Built-in Python dependency management | ✅ Implemented |
+| **Persistent Environments** | Save and recall environments across sessions | ✅ Implemented |
 
 ## 📋 Environment Template Types
 
@@ -68,6 +69,31 @@ safespace --test
 
 # Create with enhanced development features
 safespace --enhanced
+
+# Create a persistent environment
+safespace --persistent --name my-test-env
+```
+
+### Persistent Environments
+
+```bash
+# Create a persistent environment with a name
+safespace --persistent --name my-test-env
+
+# List all saved environments
+safespace recall --list
+
+# Recall a specific environment by name
+safespace recall --name my-test-env
+
+# Recall a specific environment by ID
+safespace recall --id <environment-id>
+
+# Delete a persistent environment
+safespace recall --name my-test-env --delete
+
+# Combine persistence with other features
+safespace --persistent --name network-vm-env --network --vm
 ```
 
 ### Dependency Management
@@ -148,7 +174,9 @@ graph LR
     A --> D[TestEnvironment]
     A --> E[ResourceManager]
     A --> F[DependencyManager]
+    A --> H[StateDatabase]
     G[Templates] --> A
+    H --> I[(SQLite DB)]
 ```
 
 ## 🧪 Testing Features

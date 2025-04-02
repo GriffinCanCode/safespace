@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 import click
 
@@ -18,6 +19,7 @@ from .utils import Colors, log_status, setup_logging
 from .settings_cli import settings_cli
 from .bio_cli import show_author
 from .dependency_cli import dependency_cli
+from .health_cli import health_cli
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -32,6 +34,8 @@ logger = logging.getLogger(__name__)
 @click.option("--cpus", type=int, help="Specify number of CPUs for VM")
 @click.option("--disk", help="Specify VM disk size (e.g., '20G')")
 @click.option("--debug", is_flag=True, help="Enable debug logging")
+@click.option("--persistent", is_flag=True, help="Make environment persistent across sessions")
+@click.option("--name", help="Name for the persistent environment")
 @click.option("--wordspace", "--ws", is_flag=True, help="Show comprehensive documentation")
 @click.option("--wordspace-section", help="Show specific documentation section")
 @click.option("--wordspace-subsection", help="Show specific documentation subsection")
@@ -50,6 +54,8 @@ def main(
     cpus: Optional[int],
     disk: Optional[str],
     debug: bool,
+    persistent: bool,
+    name: Optional[str],
     wordspace: bool,
     wordspace_section: Optional[str],
     wordspace_subsection: Optional[str],
@@ -65,6 +71,11 @@ def main(
     log_level = logging.DEBUG if debug else logging.INFO
     setup_logging(log_level)
     
+    # Register commands
+    main.add_command(settings_cli)
+    main.add_command(dependency_cli, name="dep")
+    main.add_command(health_cli, name="health")
+    
     # Store options in context
     ctx.ensure_object(dict)
     ctx.obj["network"] = network
@@ -76,6 +87,8 @@ def main(
     ctx.obj["vm_cpus"] = cpus
     ctx.obj["vm_disk"] = disk
     ctx.obj["debug"] = debug
+    ctx.obj["persistent"] = persistent
+    ctx.obj["env_name"] = name
     ctx.obj["wordspace"] = wordspace
     ctx.obj["wordspace_section"] = wordspace_section
     ctx.obj["wordspace_subsection"] = wordspace_subsection
@@ -122,7 +135,11 @@ def main(
                 )
         
         # Create and configure environment
-        env = SafeEnvironment(sudo_password=sudo_password)
+        env = SafeEnvironment(
+            sudo_password=sudo_password,
+            persistent=persistent,
+            env_name=name
+        )
         
         if env.create():
             # Run in the created environment
@@ -140,10 +157,6 @@ def main(
             # Cleanup on exit unless explicitly disabled
             env.cleanup()
             sys.exit(0 if result else 1)
-
-    # Register settings command
-    main.add_command(settings_cli)
-    main.add_command(dependency_cli, name="dep")
 
 def print_banner() -> None:
     """Print the SafeSpace banner"""
@@ -448,6 +461,99 @@ def foreclose(ctx: click.Context) -> None:
     else:
         log_status("Failed to foreclose environment", Colors.RED)
         sys.exit(1)
+
+@main.command()
+@click.option("-i", "--id", "env_id", help="ID of the environment to recall")
+@click.option("-n", "--name", "env_name", help="Name of the environment to recall")
+@click.option("-l", "--list", "list_envs", is_flag=True, help="List all saved environments")
+@click.option("-d", "--delete", is_flag=True, help="Delete the specified environment")
+@click.pass_context
+def recall(
+    ctx: click.Context,
+    env_id: Optional[str] = None,
+    env_name: Optional[str] = None,
+    list_envs: bool = False,
+    delete: bool = False
+) -> None:
+    """
+    Recall a previously saved persistent environment.
+    
+    This command allows you to list, load, and manage saved environments.
+    """
+    # Print banner
+    print_banner()
+    
+    # Just list environments if requested
+    if list_envs:
+        environments = SafeEnvironment.list_saved_environments()
+        
+        if not environments:
+            log_status("No saved environments found", Colors.YELLOW)
+            return
+        
+        log_status("Saved environments:", Colors.BLUE)
+        for env in environments:
+            created = datetime.fromisoformat(env.get("created_at", "")).strftime("%Y-%m-%d %H:%M")
+            accessed = datetime.fromisoformat(env.get("last_accessed", "")).strftime("%Y-%m-%d %H:%M")
+            
+            name_display = f" ({env['name']})" if env.get('name') else ""
+            print(f"  {env['id']}{name_display}")
+            print(f"    Directory: {env['root_dir']}")
+            print(f"    Created: {created}")
+            print(f"    Last accessed: {accessed}")
+            print()
+            
+        return
+    
+    # Ensure we have an ID or name
+    if not env_id and not env_name:
+        log_status("Error: Either --id or --name must be specified", Colors.RED)
+        log_status("Use --list to see available environments", Colors.YELLOW)
+        sys.exit(1)
+    
+    # Get the environment
+    env = SafeEnvironment.load_from_state(env_id=env_id, env_name=env_name)
+    
+    if not env:
+        log_status(f"Environment not found: {env_id or env_name}", Colors.RED)
+        sys.exit(1)
+    
+    # Delete if requested
+    if delete:
+        if env.delete_saved_state():
+            log_status(f"Environment state deleted: {env_id or env_name}", Colors.GREEN)
+            
+            # Ask if directory should be removed too
+            if click.confirm("Do you also want to remove the environment directory?"):
+                env.cleanup(keep_dir=False)
+                log_status("Environment directory removed", Colors.GREEN)
+        else:
+            log_status(f"Failed to delete environment: {env_id or env_name}", Colors.RED)
+        return
+    
+    # Get options from context
+    network = ctx.obj.get("network", False)
+    vm = ctx.obj.get("vm", False)
+    test = ctx.obj.get("test", False)
+    enhanced = ctx.obj.get("enhanced", False)
+    vm_memory = ctx.obj.get("vm_memory")
+    vm_cpus = ctx.obj.get("vm_cpus")
+    
+    # Run in the loaded environment
+    result = run_in_environment(
+        env, 
+        network=network, 
+        vm=vm, 
+        test=test, 
+        enhanced=enhanced,
+        vm_memory=vm_memory,
+        vm_cpus=vm_cpus,
+        vm_disk=ctx.obj.get("vm_disk")
+    )
+    
+    # Cleanup on exit - this will save state since persistent=True
+    env.cleanup()
+    sys.exit(0 if result else 1)
 
 if __name__ == "__main__":
     main()

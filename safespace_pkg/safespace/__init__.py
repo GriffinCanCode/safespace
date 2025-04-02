@@ -18,6 +18,7 @@ from .network import NetworkIsolation
 from .vm import VMConfig, VMManager
 from .testing import TestEnvironment
 from .bio_cli import show_author
+from .state_db import StateDatabase, get_state_db
 from .settings import (
     get_settings,
     reload_settings,

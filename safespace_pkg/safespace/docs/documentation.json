@@ -216,7 +216,7 @@
           "navigation": {
             "previous": "comprehensive-testing",
             "parent": "features",
-            "next": "commands"
+            "next": "health-monitoring"
           }
         },
         {
@@ -225,6 +225,26 @@
           "content": "SafeSpace includes comprehensive health monitoring for environments to ensure they remain stable and secure.\n\n**Implementation Details**:\n- Monitors directory permissions to detect security issues\n- Checks available disk space with configurable thresholds\n- Verifies subdirectory existence and integrity\n- Monitors resource usage within containers and VMs\n- Checks for process leakage across isolation boundaries\n- Performs periodic garbage collection for resources\n- Provides health status reports with detailed diagnostics\n- Implements automatic recovery for common issues\n\nHealth monitoring ensures the environment remains in a good state throughout its lifecycle.",
           "navigation": {
             "previous": "enhanced-development",
+            "parent": "features",
+            "next": "persistent-environments"
+          }
+        },
+        {
+          "title": "Persistent Environments",
+          "id": "persistent-environments",
+          "content": "SafeSpace provides a lightweight SQLite database backend for persisting environment state across sessions, enabling long-running test environments.\n\n**Usage**: `safespace --persistent --name <name>`\n\n**Implementation Details**:\n- Environment state is stored in a SQLite database at ~/.config/safespace/environments.db\n- Each environment has a unique ID and can have a user-provided name\n- Stored environment metadata includes creation time, access times, and configuration\n- Directory structure and state are preserved between sessions\n- The `recall` command enables restoration of previously created environments\n- Database ensures minimal disk usage with only necessary state information stored\n- State cleanup happens automatically during environment deletion\n\nPersistent environments are ideal for long-running test scenarios, complex setups that need to be preserved, and development environments that need to be reused.",
+          "navigation": {
+            "previous": "health-monitoring",
+            "parent": "features",
+            "next": "dependency-management"
+          }
+        },
+        {
+          "title": "Dependency Management",
+          "id": "dependency-management",
+          "content": "SafeSpace includes a comprehensive dependency management system for Python projects, supporting both pip and Poetry.\n\n**Usage**: `safespace dep [command]`\n\n**Implementation Details**:\n- Automatic detection of available package managers (pip, Poetry)\n- Support for requirements.txt and pyproject.toml formats\n- Virtual environment creation and management\n- Dependency conflict detection and resolution\n- Conversion between dependency formats\n- Isolated environment setup with specific dependencies\n- Integration with the environment's resource management\n\nThe dependency management system makes it easy to handle project dependencies in a consistent and safe manner, ensuring that all required packages are properly installed and managed.",
+          "navigation": {
+            "previous": "persistent-environments",
             "parent": "features",
             "next": "commands"
           }
@@ -243,7 +263,7 @@
         {
           "title": "Main Command",
           "id": "main-command",
-          "content": "The main command creates and configures an environment based on the provided options.\n\n**Usage**: `safespace [options]`\n\n**Implementation Details**:\n- Parses command-line arguments using Click\n- Creates a SafeEnvironment instance\n- Configures the environment based on provided options\n- Runs health checks to verify environment integrity\n- Sets up requested features (network, VM, testing, etc.)\n- Provides comprehensive status output\n- Handles proper cleanup on exit\n- Manages sudo password handling for privileged operations\n\n**Options**:\n- `-n, --network`: Enable network isolation using Linux network namespaces\n- `-v, --vm`: Enable VM mode using QEMU/KVM virtualization\n- `-c, --cleanup`: Clean up environment (for internal mode)\n- `--test`: Enable comprehensive testing mode with testing tools\n- `--enhanced`: Enable enhanced development environment with IDE integration\n- `--memory`: Specify VM memory size (e.g., '2G')\n- `--cpus`: Specify number of CPUs for VM\n- `--disk`: Specify VM disk size (e.g., '20G')\n- `--debug`: Enable debug logging for troubleshooting\n- `--wordspace`: Show comprehensive documentation\n- `--wordspace-section <section>`: Show specific documentation section\n- `--wordspace-tree`: Show documentation in tree view\n- `--version`: Show version and exit",
+          "content": "The main command creates and configures an environment based on the provided options.\n\n**Usage**: `safespace [options]`\n\n**Implementation Details**:\n- Parses command-line arguments using Click\n- Creates a SafeEnvironment instance\n- Configures the environment based on provided options\n- Runs health checks to verify environment integrity\n- Sets up requested features (network, VM, testing, etc.)\n- Provides comprehensive status output\n- Handles proper cleanup on exit\n- Manages sudo password handling for privileged operations\n\n**Options**:\n- `-n, --network`: Enable network isolation using Linux network namespaces\n- `-v, --vm`: Enable VM mode using QEMU/KVM virtualization\n- `-c, --cleanup`: Clean up environment (for internal mode)\n- `--test`: Enable comprehensive testing mode with testing tools\n- `--enhanced`: Enable enhanced development environment with IDE integration\n- `--memory`: Specify VM memory size (e.g., '2G')\n- `--cpus`: Specify number of CPUs for VM\n- `--disk`: Specify VM disk size (e.g., '20G')\n- `--persistent`: Make environment persistent across sessions\n- `--name`: Name for the persistent environment\n- `--debug`: Enable debug logging for troubleshooting\n- `--wordspace`: Show comprehensive documentation\n- `--wordspace-section <section>`: Show specific documentation section\n- `--wordspace-tree`: Show documentation in tree view\n- `--version`: Show version and exit",
           "navigation": {
             "parent": "commands",
             "next": "internal-command"
@@ -286,6 +306,36 @@
           "navigation": {
             "previous": "vm-commands",
             "parent": "commands",
+            "next": "recall-command"
+          }
+        },
+        {
+          "title": "Recall Command",
+          "id": "recall-command",
+          "content": "The recall command allows you to restore previously saved persistent environments.\n\n**Usage**: `safespace recall [options]`\n\n**Implementation Details**:\n- Retrieves environment state from the SQLite database\n- Verifies that the environment directory still exists\n- Restores all environment state and configuration\n- Provides listing of all saved environments\n- Allows deletion of saved environment state\n- Can be combined with other SafeSpace options for extending functionality\n\n**Options**:\n- `-i, --id <env_id>`: Recall environment by its unique ID\n- `-n, --name <name>`: Recall environment by its name\n- `-l, --list`: List all saved environments\n- `-d, --delete`: Delete the specified environment state\n\nThis command enables efficient management of persistent environments, allowing users to maintain long-running test environments.",
+          "navigation": {
+            "previous": "container-commands",
+            "parent": "commands",
+            "next": "dependency-commands"
+          }
+        },
+        {
+          "title": "Dependency Management Commands",
+          "id": "dependency-commands",
+          "content": "SafeSpace provides a suite of commands for managing Python dependencies in projects and environments.\n\n**Usage**: `safespace dep [command]`\n\n**Implementation Details**:\n- Commands are implemented in the `dependency_cli.py` module\n- Uses Click for the command-line interface\n- Provides a consistent interface for different package managers\n- Handles both requirements.txt and pyproject.toml formats\n- Integrates with virtual environments\n\n**Commands**:\n- `init`: Initialize dependency management for a project\n  - Options: `--name`, `--version`, `--description`, `--author`, `--manager`, `--directory`\n- `add`: Add a dependency to the project\n  - Options: `--dev`, `--group`, `--directory`, `--venv`\n- `install`: Install dependencies from requirements\n  - Options: `--venv`, `--upgrade`, `--dev`, `--directory`\n- `create-venv`: Create a new virtual environment with dependencies\n  - Options: `--venv`, `--requirements`, `--directory`\n- `export`: Export dependencies to a requirements file\n  - Options: `--output`, `--directory`, `--venv`\n- `list`: List installed packages\n  - Options: `--directory`, `--venv`\n- `check`: Check for dependency conflicts\n  - Options: `--directory`, `--venv`\n- `convert`: Convert between dependency formats\n  - Arguments: `source`, `target`\n  - Options: `--directory`\n\nThese commands provide comprehensive dependency management capabilities, making it easy to handle dependencies for any Python project.",
+          "navigation": {
+            "previous": "recall-command",
+            "parent": "commands",
+            "next": "health-command"
+          }
+        },
+        {
+          "title": "Health Command",
+          "id": "health-command",
+          "content": "SafeSpace provides comprehensive health monitoring and maintenance capabilities through the dedicated health command, which helps ensure environments remain stable and secure.\n\n**Usage**: `safespace health [command]`\n\n**Implementation Details**:\n- Health commands are implemented in the `health_cli.py` module\n- Uses Click for the command-line interface\n- Provides detailed health checks for environments\n- Offers fixing and cleaning capabilities for maintenance\n- Can be used with persistent environments\n\n**Commands**:\n- `check`: Check the health of a SafeSpace environment\n  - Options: `--environment/-e`, `--id`, `--name`, `--json`, `--detailed/-d`\n- `fix`: Fix common health issues in a SafeSpace environment\n  - Options: `--environment/-e`, `--id`, `--name`, `--permissions`, `--directories`, `--all`\n- `clean`: Clean cache and temporary files in a SafeSpace environment\n  - Options: `--environment/-e`, `--id`, `--name`, `--cache`, `--logs`, `--tmp`, `--all`\n\n**Example Usage**:\n```bash\n# Check health of current environment\nsafespace health check\n\n# Check health with detailed information\nsafespace health check --detailed\n\n# Check health of a specific environment by ID\nsafespace health check --id 1234abcd\n\n# Check health of a named environment\nsafespace health check --name dev-env\n\n# Fix permission issues\nsafespace health fix --permissions\n\n# Fix all issues\nsafespace health fix --all\n\n# Clean cache files\nsafespace health clean --cache\n\n# Clean all temporary files\nsafespace health clean --all\n```\n\nHealth monitoring ensures that environments remain in a good state throughout their lifecycle, detecting and addressing potential issues before they cause problems. The dedicated health commands provide convenient access to this functionality.",
+          "navigation": {
+            "previous": "dependency-commands",
+            "parent": "commands",
             "next": "environment-management"
           }
         }
@@ -299,6 +349,10 @@
       "title": "Environment Management",
       "id": "environment-management",
       "content": "SafeSpace provides various methods for managing environments. The SafeEnvironment class is the core component that handles environment creation, configuration, and lifecycle management.",
+      "navigation": {
+        "previous": "health-command",
+        "next": "advanced-usage"
+      },
       "subsections": [
         {
           "title": "Creating Environments",
@@ -346,24 +400,30 @@
           "navigation": {
             "previous": "running-in-environments",
             "parent": "environment-management",
+            "next": "persistent-state"
+          }
+        },
+        {
+          "title": "Managing Persistent State",
+          "id": "persistent-state",
+          "content": "SafeSpace provides tools for managing persistent environment state across sessions.\n\n**Implementation Details**:\n- Environment state is saved in a SQLite database when created with `--persistent`\n- The state includes configured features, environment variables, and metadata\n- Environments can be recalled by ID or friendly name using `safespace recall`\n- Environment directories remain intact between sessions\n- State is automatically updated on cleanup to preserve changes\n- The database is located at ~/.config/safespace/environments.db by default\n- Old environments can be purged based on last access time\n\nState persistence enables continuity across testing and development sessions, making it ideal for long-running tests and complex environment configurations.",
+          "navigation": {
+            "previous": "managing-resources",
+            "parent": "environment-management",
             "next": "cleaning-up-environments"
           }
         },
         {
           "title": "Cleaning Up Environments",
           "id": "cleaning-up-environments",
-          "content": "Environments can be cleaned up using the CLI. When cleaning up an environment, all resources are released and the environment directory is removed.\n\n**CLI**:\n```bash\nsafespace -c\n```\n\n**Implementation Details**:\n- Cleanup releases all resources in reverse order of creation\n- For network isolation, namespaces and interfaces are removed\n- For VM isolation, VM is stopped and disk image removed\n- For container isolation, container is stopped and removed\n- Processes using the environment directory are identified and terminated\n- Directory removal is handled with proper permissions\n- Internal mode preserves the directory unless explicitly requested\n- Foreclose performs complete removal including all backup directories",
+          "content": "Environments can be cleaned up using the CLI. When cleaning up an environment, all resources are released and the environment directory is removed.\n\n**CLI**:\n```bash\nsafespace -c\n```\n\n**Implementation Details**:\n- Cleanup releases all resources in reverse order of creation\n- For network isolation, namespaces and interfaces are removed\n- For VM isolation, VM is stopped and disk image removed\n- For container isolation, container is stopped and removed\n- Processes using the environment directory are identified and terminated\n- Directory removal is handled with proper permissions\n- Internal mode preserves the directory unless explicitly requested\n- Persistent environments preserve their directory and save state on cleanup\n- Foreclose performs complete removal including all backup directories",
           "navigation": {
-            "previous": "managing-resources",
+            "previous": "persistent-state",
             "parent": "environment-management",
             "next": "advanced-usage"
           }
         }
-      ],
-      "navigation": {
-        "previous": "commands",
-        "next": "advanced-usage"
-      }
+      ]
     },
     {
       "title": "Advanced Usage",
@@ -405,6 +465,16 @@
           "content": "SafeSpace provides detailed container configuration options for specific testing scenarios.\n\n**Advanced container configuration**:\n```python\nfrom safespace.environment import SafeEnvironment\nfrom safespace.container import ContainerManager, ContainerConfig\n\n# Create environment\nenv = SafeEnvironment(sudo_password=\"your_password\")\nenv.create()\n\n# Create custom container configuration\ncontainer_config = ContainerConfig(\n    image=\"python:3.11-alpine\",\n    memory=\"2g\",\n    cpus=2.0,\n    storage_size=\"10G\",\n    network_enabled=True,\n    privileged=False,\n    mount_workspace=True\n)\n\n# Create container manager\ncontainer_manager = ContainerManager(\n    env_dir=env.root_dir,\n    sudo_password=\"your_password\",\n    config=container_config\n)\n\n# Set up container\ncontainer_manager.setup()\n\n# Start container\ncontainer_manager.start()\n\n# Run commands in container\nrc, stdout, stderr = container_manager.run_command([\"python\", \"-c\", \"print('Hello from container')\"])\nprint(stdout)\n\n# Stop container\ncontainer_manager.stop()\n\n# Clean up when done\ncontainer_manager.cleanup()\nenv.cleanup()\n```\n\n**Implementation Details**:\n- Container configuration allows detailed customization\n- Memory limits prevent container from using too much RAM\n- CPU limits control processor usage\n- Storage size limits prevent disk space issues\n- Network can be enabled or disabled\n- Privileged mode can be enabled for advanced use cases\n- Workspace mounting provides access to project files",
           "navigation": {
             "previous": "vm-configuration",
+            "parent": "advanced-usage",
+            "next": "dependency-management-advanced"
+          }
+        },
+        {
+          "title": "Advanced Dependency Management",
+          "id": "dependency-management-advanced",
+          "content": "SafeSpace provides a powerful API for advanced dependency management directly in your code.\n\n**Advanced dependency management**:\n```python\nfrom safespace.environment import SafeEnvironment\nfrom safespace.dependency_manager import DependencyManager\n\n# Create environment\nenv = SafeEnvironment()\nenv.create()\n\n# Create dependency manager for a project\ndep_manager = DependencyManager(\n    project_dir=\"/path/to/project\",\n    venv_path=env.root_dir / \"venv\"\n)\n\n# Create a virtual environment\ndep_manager.create_isolated_environment(\n    venv_path=env.root_dir / \"venv\"\n)\n\n# Initialize Poetry project\nif dep_manager.has_poetry():\n    dep_manager.init_poetry_project(\n        name=\"my-project\",\n        version=\"0.1.0\",\n        description=\"My test project\",\n        author=\"Your Name\"\n    )\n    \n    # Add dependencies with Poetry\n    dep_manager.poetry_add_dependency(\"pytest\", dev=True)\n    dep_manager.poetry_add_dependency(\"requests\")\n    \n    # Install dependencies\n    dep_manager.poetry_install()\nelse:\n    # Create requirements file\n    dep_manager.create_requirements_file([\n        \"pytest>=7.0.0\",\n        \"requests>=2.28.0\"\n    ])\n    \n    # Install requirements\n    dep_manager.install_requirements()\n\n# List installed packages\npackages = dep_manager.list_installed_packages()\nfor name, version in packages.items():\n    print(f\"{name}=={version}\")\n\n# Check for conflicts\nconflicts = dep_manager.check_dependency_conflicts()\nif conflicts:\n    print(\"Dependency conflicts detected:\")\n    for conflict in conflicts:\n        print(f\"- {conflict}\")\n\n# Clean up when done\nenv.cleanup()\n```\n\n**Implementation Details**:\n- The DependencyManager class provides a complete API for dependency management\n- Both pip and Poetry are supported with automatic detection\n- Virtual environments can be created with specific dependencies\n- Projects can be initialized with proper configuration\n- Dependency conflicts can be detected and analyzed\n- Package export and conversion between formats is supported\n- Integration with the environment's resource management ensures proper isolation",
+          "navigation": {
+            "previous": "container-configuration",
             "parent": "advanced-usage",
             "next": "troubleshooting"
           }
