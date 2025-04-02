@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import logging
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,6 +24,12 @@ class CoreType(Enum):
     """Types of CPU cores for resource allocation"""
     PERFORMANCE = "performance"
     EFFICIENCY = "efficiency"
+
+class WorkloadType(Enum):
+    """Types of workloads for resource allocation"""
+    LIGHT = "light"
+    MEDIUM = "medium"
+    HEAVY = "heavy"
 
 @dataclass
 class ResourceConfig:
@@ -112,6 +119,89 @@ class ResourceManager:
             config.save(self.config_file)
         
         self.config = config
+        
+        # Initialize dynamic resource tracking
+        self.last_resource_check = 0
+        self.resource_check_interval = 5  # seconds
+        self.current_load = self._get_system_load()
+        self.current_workload_type = self._determine_workload_type()
+    
+    def _get_system_load(self) -> Dict[str, float]:
+        """Get current system resource load"""
+        # Get CPU and memory load
+        cpu_load = psutil.cpu_percent(interval=0.1) / 100.0
+        memory_load = psutil.virtual_memory().percent / 100.0
+        
+        # Get disk I/O load - this is platform-dependent
+        # We'll use a simple approximation based on available disk counters
+        disk_io_load = 0.0
+        try:
+            # Different platforms have different disk I/O counter attributes
+            # We'll try to get read/write counts as a generic measure
+            disk_counters = psutil.disk_io_counters(perdisk=True)
+            if disk_counters:
+                # Calculate total read/write operations across all disks
+                total_ops = sum(
+                    (getattr(disk, 'read_count', 0) + getattr(disk, 'write_count', 0))
+                    for disk in disk_counters.values()
+                )
+                # Normalize to a 0-1 scale (assuming 10,000 ops is high load)
+                # This is a rough approximation
+                disk_io_load = min(1.0, total_ops / 10000.0)
+        except (AttributeError, ZeroDivisionError):
+            # Fallback if disk counters aren't available
+            disk_io_load = 0.0
+        
+        return {
+            "cpu": cpu_load,
+            "memory": memory_load,
+            "disk_io": disk_io_load,
+        }
+    
+    def _determine_workload_type(self) -> WorkloadType:
+        """Determine the current workload type based on system load"""
+        load = self.current_load
+        cpu_load = load["cpu"]
+        memory_load = load["memory"]
+        
+        # Determine workload type based on CPU and memory usage
+        if cpu_load > 0.7 or memory_load > 0.8:
+            return WorkloadType.HEAVY
+        elif cpu_load > 0.3 or memory_load > 0.5:
+            return WorkloadType.MEDIUM
+        else:
+            return WorkloadType.LIGHT
+    
+    def update_resource_status(self) -> bool:
+        """Update the resource status if needed and return True if updated"""
+        current_time = time.time()
+        
+        # Always update on the first call
+        if self.last_resource_check == 0:
+            self.last_resource_check = current_time
+            self.current_load = self._get_system_load()
+            old_workload_type = self.current_workload_type
+            self.current_workload_type = self._determine_workload_type()
+            # Log if workload type changed
+            if old_workload_type != self.current_workload_type:
+                logger.debug(f"Workload type changed to {self.current_workload_type.value}")
+            return True
+        
+        # Check if we need to update based on the interval
+        if current_time - self.last_resource_check < self.resource_check_interval:
+            return False
+        
+        self.last_resource_check = current_time
+        self.current_load = self._get_system_load()
+        new_workload_type = self._determine_workload_type()
+        
+        # Return True if workload type changed
+        if new_workload_type != self.current_workload_type:
+            self.current_workload_type = new_workload_type
+            logger.debug(f"Workload type changed to {self.current_workload_type.value}")
+            return True
+        
+        return False
     
     def optimize_cores(self, core_type: CoreType) -> List[int]:
         """Get the CPU core IDs for the specified core type"""
@@ -126,16 +216,72 @@ class ResourceManager:
     
     def run_optimized(self, command: str, core_type: CoreType) -> int:
         """Run a command optimized for the specified core type"""
+        # Update resource status before running command
+        self.update_resource_status()
+        
+        # Adjust priority based on workload
+        nice_value = 0
+        if self.current_workload_type == WorkloadType.HEAVY:
+            # Lower priority on heavy system load
+            nice_value = 15 if core_type == CoreType.EFFICIENCY else 5
+        elif self.current_workload_type == WorkloadType.MEDIUM:
+            nice_value = 10 if core_type == CoreType.EFFICIENCY else 0
+        
         if sys.platform == "darwin":  # macOS
-            if core_type == CoreType.EFFICIENCY:
+            if nice_value > 0:
                 # Use nice for lower priority on macOS
-                command = f"nice -n 10 {command}"
+                command = f"nice -n {nice_value} {command}"
             return os.system(command)
         else:  # Linux
             # Use taskset for CPU affinity on Linux
             cores = self.optimize_cores(core_type)
+            # Dynamically adjust cores based on workload
+            if self.current_workload_type == WorkloadType.HEAVY:
+                # Use fewer cores when system is under heavy load
+                cores = cores[:max(1, len(cores) // 2)]
+            
             core_list = ",".join(map(str, cores))
-            return os.system(f"taskset -c {core_list} {command}")
+            if nice_value > 0:
+                return os.system(f"nice -n {nice_value} taskset -c {core_list} {command}")
+            else:
+                return os.system(f"taskset -c {core_list} {command}")
+    
+    def get_recommended_resource_limits(self) -> Dict[str, Union[int, float]]:
+        """Get recommended resource limits based on current system state"""
+        # Update resource status
+        self.update_resource_status()
+        
+        # Get total system resources
+        total_memory = psutil.virtual_memory().total
+        total_cpus = psutil.cpu_count(logical=True)
+        
+        # Calculate available resources
+        available_memory = psutil.virtual_memory().available
+        available_cpu_percent = 100 - psutil.cpu_percent(interval=0.1)
+        
+        # Calculate recommended limits based on workload type
+        if self.current_workload_type == WorkloadType.LIGHT:
+            # Can use more resources when system load is light
+            memory_limit = int(available_memory * 0.7)  # 70% of available memory
+            cpu_limit = max(1, int(total_cpus * (available_cpu_percent / 100) * 0.7))
+        elif self.current_workload_type == WorkloadType.MEDIUM:
+            # Moderate resource usage
+            memory_limit = int(available_memory * 0.5)  # 50% of available memory
+            cpu_limit = max(1, int(total_cpus * (available_cpu_percent / 100) * 0.5))
+        else:  # HEAVY
+            # Conservative resource usage
+            memory_limit = int(available_memory * 0.3)  # 30% of available memory
+            cpu_limit = max(1, int(total_cpus * (available_cpu_percent / 100) * 0.3))
+        
+        # Ensure minimum values
+        memory_limit = max(memory_limit, 256 * 1024 * 1024)  # Minimum 256MB
+        cpu_limit = max(cpu_limit, 1)
+        
+        return {
+            "memory_bytes": memory_limit,
+            "cpus": cpu_limit,
+            "io_weight": 50 if self.current_workload_type == WorkloadType.HEAVY else 100,
+        }
     
     def cleanup_cache(self) -> None:
         """Clean up the cache directory based on cache limits"""
@@ -168,6 +314,32 @@ class ResourceManager:
                 logger.debug(f"Removed cache file: {file}")
             except OSError as e:
                 logger.warning(f"Failed to remove cache file {file}: {e}")
+    
+    def adaptive_cache_limit(self) -> int:
+        """Dynamically adjust cache limit based on available disk space"""
+        # Get disk stats for the cache directory's disk
+        disk_stats = psutil.disk_usage(str(self.cache_dir))
+        
+        # Base cache limit is 10% of total memory
+        base_limit = self.config.cache_limit_bytes
+        
+        # If disk is getting full (>85% used), reduce cache limit
+        if disk_stats.percent > 85:
+            # Scale down cache limit based on how full the disk is
+            scale_factor = max(0.1, (100 - disk_stats.percent) / 15)  # 1.0 at 85%, 0.1 at 100%
+            return int(base_limit * scale_factor)
+        
+        # If disk has plenty of space, we can potentially use more cache
+        # but never more than 20% of total memory
+        total_memory = psutil.virtual_memory().total
+        max_cache = int(total_memory * 0.2)
+        
+        # Only increase if disk is less than 70% full
+        if disk_stats.percent < 70:
+            scale_factor = min(2.0, 1.0 + (70 - disk_stats.percent) / 50)  # 1.0 at 70%, 2.0 at 20%
+            return min(int(base_limit * scale_factor), max_cache)
+        
+        return base_limit
 
 
 def get_resource_manager(cache_dir: Path) -> ResourceManager:

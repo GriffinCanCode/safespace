@@ -39,6 +39,7 @@ from safespace.utils import (
 )
 from safespace.resource_manager import (
     CoreType,
+    WorkloadType,
     ResourceConfig,
     ResourceManager,
     get_resource_manager,
@@ -483,6 +484,226 @@ class TestResourceManager:
             # Both should complete successfully
             assert perf_result == 0
             assert eff_result == 0
+
+    def test_workload_type_determination(self):
+        """Test workload type determination based on system load"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "cache"
+            cache_dir.mkdir()
+            
+            # Create resource manager
+            resource_manager = ResourceManager(cache_dir)
+            
+            # Test determination of workload type directly
+            
+            # 1. Light workload (low CPU and memory)
+            resource_manager.current_load = {"cpu": 0.2, "memory": 0.3, "disk_io": 0.1}
+            assert resource_manager._determine_workload_type() == WorkloadType.LIGHT
+            
+            # 2. Medium workload (medium CPU)
+            resource_manager.current_load = {"cpu": 0.5, "memory": 0.3, "disk_io": 0.2}
+            assert resource_manager._determine_workload_type() == WorkloadType.MEDIUM
+            
+            # 3. Medium workload (medium memory)
+            resource_manager.current_load = {"cpu": 0.2, "memory": 0.6, "disk_io": 0.2}
+            assert resource_manager._determine_workload_type() == WorkloadType.MEDIUM
+            
+            # 4. Heavy workload (high CPU)
+            resource_manager.current_load = {"cpu": 0.8, "memory": 0.5, "disk_io": 0.3}
+            assert resource_manager._determine_workload_type() == WorkloadType.HEAVY
+            
+            # 5. Heavy workload (high memory)
+            resource_manager.current_load = {"cpu": 0.5, "memory": 0.9, "disk_io": 0.3}
+            assert resource_manager._determine_workload_type() == WorkloadType.HEAVY
+            
+            # Now test the full update flow with mocking
+            with mock.patch.object(resource_manager, '_get_system_load') as mock_load:
+                # Set to heavy workload
+                mock_load.return_value = {"cpu": 0.8, "memory": 0.9, "disk_io": 0.5}
+                resource_manager.last_resource_check = 0  # Reset to force update
+                resource_manager.update_resource_status()
+                assert resource_manager.current_workload_type == WorkloadType.HEAVY
+                
+                # Change to medium workload
+                mock_load.return_value = {"cpu": 0.5, "memory": 0.3, "disk_io": 0.2}
+                resource_manager.last_resource_check = 0  # Reset to force update
+                resource_manager.update_resource_status()
+                assert resource_manager.current_workload_type == WorkloadType.MEDIUM
+                
+                # Change to light workload
+                mock_load.return_value = {"cpu": 0.2, "memory": 0.3, "disk_io": 0.1}
+                resource_manager.last_resource_check = 0  # Reset to force update
+                resource_manager.update_resource_status()
+                assert resource_manager.current_workload_type == WorkloadType.LIGHT
+
+    def test_resource_status_update_interval(self):
+        """Test resource status update respects the update interval"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "cache"
+            cache_dir.mkdir()
+            
+            # Create resource manager with short update interval for testing
+            resource_manager = ResourceManager(cache_dir)
+            resource_manager.resource_check_interval = 0.5  # Half a second
+            
+            # First update should always work
+            with mock.patch.object(resource_manager, '_get_system_load') as mock_load:
+                mock_load.return_value = {"cpu": 0.2, "memory": 0.3, "disk_io": 0.1}
+                update_result = resource_manager.update_resource_status()
+                assert update_result is True  # First update should return True
+            
+            # Second immediate update should be skipped
+            with mock.patch.object(resource_manager, '_get_system_load') as mock_load:
+                mock_load.return_value = {"cpu": 0.8, "memory": 0.9, "disk_io": 0.5}  # Would trigger workload change
+                update_result = resource_manager.update_resource_status()
+                assert update_result is False  # Update should be skipped
+                assert resource_manager.current_workload_type == WorkloadType.LIGHT  # Should not have changed
+            
+            # Wait for the interval to pass
+            time.sleep(0.6)
+            
+            # Now the update should happen
+            with mock.patch.object(resource_manager, '_get_system_load') as mock_load:
+                mock_load.return_value = {"cpu": 0.8, "memory": 0.9, "disk_io": 0.5}
+                update_result = resource_manager.update_resource_status()
+                assert update_result is True  # Update should happen
+                assert resource_manager.current_workload_type == WorkloadType.HEAVY  # Should have changed
+    
+    def test_recommended_resource_limits(self):
+        """Test getting recommended resource limits based on workload"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "cache"
+            cache_dir.mkdir()
+            
+            # Create resource manager
+            resource_manager = ResourceManager(cache_dir)
+            
+            # Mock system stats for consistent testing
+            total_memory = 16 * 1024 * 1024 * 1024  # 16 GB
+            available_memory = 8 * 1024 * 1024 * 1024  # 8 GB
+            cpu_percent = 20  # 20% CPU utilization
+            total_cpus = 8
+            
+            # Mock the needed functions
+            with mock.patch.object(psutil, 'virtual_memory') as mock_vm, \
+                 mock.patch.object(psutil, 'cpu_percent') as mock_cpu, \
+                 mock.patch.object(psutil, 'cpu_count') as mock_cpu_count:
+                
+                # Configure mocks for light workload
+                mock_vm.return_value.total = total_memory
+                mock_vm.return_value.available = available_memory
+                mock_cpu.return_value = cpu_percent
+                mock_cpu_count.return_value = total_cpus
+                
+                # Light workload
+                with mock.patch.object(resource_manager, '_determine_workload_type') as mock_workload:
+                    mock_workload.return_value = WorkloadType.LIGHT
+                    resource_manager.current_workload_type = WorkloadType.LIGHT
+                    
+                    limits = resource_manager.get_recommended_resource_limits()
+                    
+                    # Verify light workload limits
+                    assert limits["memory_bytes"] > 0
+                    assert limits["cpus"] > 0
+                    assert limits["io_weight"] == 100
+                
+                # Medium workload
+                with mock.patch.object(resource_manager, '_determine_workload_type') as mock_workload:
+                    mock_workload.return_value = WorkloadType.MEDIUM
+                    resource_manager.current_workload_type = WorkloadType.MEDIUM
+                    
+                    limits = resource_manager.get_recommended_resource_limits()
+                    
+                    # Verify medium workload limits
+                    assert limits["memory_bytes"] > 0
+                    assert limits["cpus"] > 0
+                    assert limits["io_weight"] == 100
+                
+                # Heavy workload
+                with mock.patch.object(resource_manager, '_determine_workload_type') as mock_workload:
+                    mock_workload.return_value = WorkloadType.HEAVY
+                    resource_manager.current_workload_type = WorkloadType.HEAVY
+                    
+                    limits = resource_manager.get_recommended_resource_limits()
+                    
+                    # Verify heavy workload limits
+                    assert limits["memory_bytes"] > 0
+                    assert limits["cpus"] > 0
+                    assert limits["io_weight"] == 50  # Lower IO weight for heavy workloads
+    
+    def test_adaptive_cache_limit(self):
+        """Test adaptive cache limit based on disk space"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "cache"
+            cache_dir.mkdir()
+            
+            # Create resource manager
+            resource_manager = ResourceManager(cache_dir)
+            
+            # Set a base cache limit for testing
+            base_limit = 1024 * 1024 * 100  # 100 MB
+            resource_manager.config.cache_limit_bytes = base_limit
+            
+            # Test with different disk usage scenarios
+            disk_scenarios = [
+                # (percent_used, expected_factor)
+                (50, 1.4),  # Less than 70% used, should increase (scale factor ~1.4)
+                (75, 1.0),  # Between 70-85%, should stay at base
+                (90, 0.67),  # More than 85% used, should decrease (scale factor ~0.67)
+                (95, 0.33),  # Very high usage, should decrease significantly
+            ]
+            
+            for percent_used, expected_factor in disk_scenarios:
+                # Mock disk usage function
+                with mock.patch.object(psutil, 'disk_usage') as mock_disk:
+                    mock_disk.return_value.total = 1000
+                    mock_disk.return_value.used = percent_used * 10
+                    mock_disk.return_value.free = 1000 - (percent_used * 10)
+                    mock_disk.return_value.percent = percent_used
+                    
+                    # Also mock virtual_memory for max cache calculation
+                    with mock.patch.object(psutil, 'virtual_memory') as mock_vm:
+                        mock_vm.return_value.total = 1024 * 1024 * 1024  # 1 GB
+                        
+                        # Calculate adaptive limit
+                        limit = resource_manager.adaptive_cache_limit()
+                        
+                        # Check it's within 10% of expected factor * base_limit
+                        expected = base_limit * expected_factor
+                        assert limit >= expected * 0.9 and limit <= expected * 1.1, \
+                            f"For {percent_used}% disk used, expected ~{expected_factor}x scaling"
+    
+    def test_dynamic_core_adjustment(self):
+        """Test dynamic core adjustment based on workload"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_dir = Path(temp_dir) / "cache"
+            cache_dir.mkdir()
+            
+            # Create a resource manager with specific core configuration
+            config = ResourceConfig(
+                performance_cores=4,
+                efficiency_cores=4,
+                cache_limit_bytes=1024 * 1024 * 10,
+                cache_dir=cache_dir
+            )
+            
+            config_file = cache_dir / "resource_config.json"
+            config.save(config_file)
+            
+            resource_manager = ResourceManager(cache_dir)
+            
+            # Test with different workload types
+            # For HEAVY workload, it should use fewer cores
+            with mock.patch.object(resource_manager, 'current_workload_type', WorkloadType.HEAVY):
+                with mock.patch.object(os, 'system') as mock_system:
+                    resource_manager.run_optimized("test_command", CoreType.PERFORMANCE)
+                    
+                    # Check that the command included taskset with a reduced core set
+                    # and the nice command with appropriate priority
+                    call_args = mock_system.call_args[0][0]
+                    if sys.platform != "darwin":  # Linux
+                        assert "taskset" in call_args
+                        assert "nice" in call_args
 
 
 @pytest.mark.skipif(os.geteuid() != 0, reason="Network isolation tests require root privileges")
