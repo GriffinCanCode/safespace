@@ -1,24 +1,56 @@
 {
   "name": "SafeSpace",
   "version": "current",
-  "description": "SafeSpace is a tool that creates isolated testing environments with various safety features, allowing for secure testing and development.",
+  "description": "SafeSpace is a tool that creates isolated testing environments with various safety features, allowing for secure testing and development. It provides robust isolation at multiple levels to ensure test environments don't interfere with your primary system.",
   "sections": [
     {
       "title": "Core Concepts",
       "id": "core-concepts",
-      "content": "SafeSpace creates isolated environments for testing and development with configurable levels of isolation, including network isolation, VM isolation, and container-based isolation. These environments can be customized for specific testing scenarios using templates.",
+      "content": "SafeSpace creates isolated environments for testing and development with configurable levels of isolation, including network isolation, VM isolation, and container-based isolation. These environments can be customized for specific testing scenarios using templates. Each environment is created with secure permissions and proper resource allocation.",
       "subsections": [
         {
           "title": "Isolation Levels",
           "id": "isolation-levels",
-          "content": "SafeSpace supports multiple isolation levels:\n- **Filesystem isolation**: Basic isolation at the filesystem level\n- **Network isolation**: Separate network namespace with controlled access\n- **Container isolation**: Docker/Podman container-based isolation\n- **VM isolation**: Complete isolation using lightweight VMs"
+          "content": "SafeSpace supports multiple isolation levels with increasing separation from the host system:\n\n- **Filesystem isolation**: Basic isolation at the filesystem level, providing separate directories with secure permissions (0o700) for the environment\n- **Network isolation**: Separate network namespace with controlled access, allowing testing of network behavior without affecting the host system\n- **Container isolation**: Docker/Podman container-based isolation with configurable resource limits, using either Docker or Podman depending on what's available\n- **VM isolation**: Complete isolation using lightweight QEMU/KVM virtual machines running Alpine Linux by default, with configurable resources",
+          "navigation": {
+            "next": "directory-structure",
+            "parent": "core-concepts"
+          }
         },
         {
           "title": "Environment Directory Structure",
           "id": "directory-structure",
-          "content": "Each SafeSpace environment has the following structure:\n- `cache/`: Cache files for the environment\n- `logs/`: Log files\n- `data/`: Data storage\n- `tmp/`: Temporary files\n- `.env`: Environment variables\n- `vm/`: VM-related files (if VM mode is enabled)\n- `container/`: Container-related files (if container mode is enabled)"
+          "content": "Each SafeSpace environment has the following carefully organized directory structure:\n\n- `cache/`: Cache files for the environment with configurable size limits\n- `logs/`: Log files with automatic rotation and cleanup of old logs\n- `data/`: Data storage for persistent information across environment runs\n- `tmp/`: Temporary files with automatic garbage collection\n- `.env`: Environment variables file that tracks all configuration settings\n- `vm/`: VM-related files including disk images, control scripts, and configuration (if VM mode is enabled)\n- `container/`: Container-related files including scripts for managing containers (if container mode is enabled)",
+          "navigation": {
+            "previous": "isolation-levels",
+            "parent": "core-concepts",
+            "next": "resource-management"
+          }
+        },
+        {
+          "title": "Resource Management",
+          "id": "resource-management",
+          "content": "SafeSpace intelligently manages system resources to prevent overallocation:\n\n- **Core Optimization**: Allocates performance and efficiency cores based on workload\n- **Memory Management**: Configurable memory limits for VMs and containers\n- **Disk Space Management**: Monitors available space and provides warnings when below thresholds\n- **Cache Management**: Automatic cache pruning based on configurable size limits and access patterns\n- **Process Isolation**: Ensures processes in the isolated environment don't interfere with the host system",
+          "navigation": {
+            "previous": "directory-structure",
+            "parent": "core-concepts",
+            "next": "security-features"
+          }
+        },
+        {
+          "title": "Security Features",
+          "id": "security-features",
+          "content": "SafeSpace implements multiple security measures to protect both the host and environment:\n\n- **Secure Directories**: Creates directories with strict permissions (0o700 on Unix)\n- **Process Isolation**: Prevents processes from accessing resources outside their environment\n- **Resource Limitations**: Configurable limits on CPU, memory, and disk usage\n- **Network Isolation**: Separate network namespace with controlled access\n- **Cleanup Protocols**: Comprehensive cleanup to ensure no resources are left behind\n- **Permission Validation**: Checks for proper permissions before operations",
+          "navigation": {
+            "previous": "resource-management",
+            "parent": "core-concepts",
+            "next": "templates"
+          }
         }
-      ]
+      ],
+      "navigation": {
+        "next": "templates"
+      }
     },
     {
       "title": "Environment Templates",
