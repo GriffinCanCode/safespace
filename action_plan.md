@@ -154,11 +154,14 @@
 - [ ] Test locally:
   - [ ] Install from local package
   - [ ] Verify functionality
-- [ ] Register PyPI account (if needed)
+- [ ] Configure CloudRepo access:
+  - [ ] Create `~/.pypirc` file with CloudRepo credentials
+  - [ ] Create `pip.conf` template for client installation
 - [ ] Build distribution files
-- [ ] Upload to PyPI test server
-- [ ] Test installation from test server
-- [ ] Upload to PyPI production server
+- [ ] Upload to CloudRepo:
+  - [ ] Use `twine upload dist/* --repository cloudrepo`
+  - [ ] Verify package is available
+- [ ] Test installation from CloudRepo
 
 ## Step 11: Verify and Troubleshoot ⬜
 - [ ] Install from PyPI in clean environment
