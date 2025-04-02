@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any, Union
 
 from .utils import log_status, Colors, run_command, sudo_command, is_command_available
+from .settings import get_settings
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -23,13 +24,29 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ContainerConfig:
     """Container Configuration"""
-    image: str = "alpine:latest"
-    memory: str = "512m"
-    cpus: float = 1.0
-    storage_size: str = "5G"
-    network_enabled: bool = False
-    privileged: bool = False
-    mount_workspace: bool = True
+    image: str
+    memory: str
+    cpus: float
+    storage_size: str
+    network_enabled: bool
+    privileged: bool
+    mount_workspace: bool
+    
+    @classmethod
+    def from_settings(cls) -> "ContainerConfig":
+        """Create a container configuration from settings"""
+        settings = get_settings()
+        container_settings = settings.container
+        
+        return cls(
+            image=container_settings.default_image,
+            memory=container_settings.default_memory,
+            cpus=container_settings.default_cpus,
+            storage_size=container_settings.default_storage_size,
+            network_enabled=container_settings.default_network_enabled,
+            privileged=container_settings.default_privileged,
+            mount_workspace=container_settings.default_mount_workspace
+        )
 
 
 class ContainerManager:
@@ -49,10 +66,14 @@ class ContainerManager:
             sudo_password: Optional sudo password for privileged operations
             config: Optional container configuration
         """
+        # Get settings
+        settings = get_settings()
+        container_settings = settings.container
+        
         self.env_dir = env_dir
         self.sudo_password = sudo_password
         self.container_dir = env_dir / "container"
-        self.config = config or ContainerConfig()
+        self.config = config or ContainerConfig.from_settings()
         self.is_linux = platform.system() == "Linux"
         self.is_macos = platform.system() == "Darwin"
         self.container_name = f"safespace_{os.urandom(4).hex()}"
@@ -61,7 +82,12 @@ class ContainerManager:
         # Determine if Docker or Podman is available
         self.use_podman = is_command_available("podman")
         self.use_docker = is_command_available("docker")
-        self.container_runtime = "podman" if self.use_podman else "docker"
+        
+        # Apply container runtime preference from settings
+        if self.use_podman and self.use_docker:
+            self.container_runtime = "podman" if container_settings.prefer_podman else "docker"
+        else:
+            self.container_runtime = "podman" if self.use_podman else "docker"
     
     def _sudo_cmd(self, cmd: List[str]) -> Tuple[int, str, str]:
         """

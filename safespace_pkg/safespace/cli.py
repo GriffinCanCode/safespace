@@ -15,6 +15,8 @@ import click
 from . import __version__
 from .environment import SafeEnvironment
 from .utils import Colors, log_status, setup_logging
+from .settings_cli import settings_cli
+from .bio_cli import show_author
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -137,6 +139,9 @@ def main(
             # Cleanup on exit unless explicitly disabled
             env.cleanup()
             sys.exit(0 if result else 1)
+
+    # Register settings command
+    main.add_command(settings_cli)
 
 def print_banner() -> None:
     """Print the SafeSpace banner"""
@@ -413,6 +418,17 @@ def ws_command(ctx: click.Context, section: Optional[str] = None,
         interactive=not (tree or no_interactive)
     )
     sys.exit(0)
+
+@main.command()
+@click.pass_context
+def author(ctx: click.Context) -> None:
+    """
+    Display information about the author.
+    
+    This command shows entertaining facts, quotes and wisdom from Griffin, 
+    the programming god and author of SafeSpace.
+    """
+    show_author()
 
 @main.command()
 @click.pass_context

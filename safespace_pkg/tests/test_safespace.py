@@ -60,24 +60,6 @@ from safespace.templates import (
 )
 from safespace import __version__
 
-
-# DEBUG_CHECKLIST: List of tests to verify fix integrity
-DEBUG_CHECKLIST = [
-    "test_format_size_edge_cases",
-    "test_resource_config_from_system",
-    "test_resource_manager_core_optimization",
-    "test_optimized_resource_allocation",
-    "test_environment_isolation",
-    "test_comprehensive_features",
-    "test_environment_templates",
-    "test_template_registry",
-    "test_template_creation",
-    "test_readme_accuracy",
-    "test_container_isolation",
-    "test_documentation_structure"
-]
-
-
 # Helper functions for tests
 @contextmanager
 def capture_logs():
@@ -1119,3 +1101,59 @@ class TestDocumentation:
         # Verify all actual templates are documented
         assert actual_templates.issubset(documented_templates), \
             f"Templates missing from documentation: {actual_templates - documented_templates}"
+
+
+class TestAuthor:
+    """Tests for the author functionality"""
+    
+    def test_author_functionality(self):
+        """Test the author functionality works as expected"""
+        from safespace.bio import (
+            get_random_facts,
+            get_random_quote,
+            get_random_advice,
+            GRIFFIN_LOGO,
+            GOD_MODE_TEXT
+        )
+        
+        # Test that ASCII art is defined
+        assert GRIFFIN_LOGO and isinstance(GRIFFIN_LOGO, str)
+        assert GOD_MODE_TEXT and isinstance(GOD_MODE_TEXT, str)
+        
+        # Test that random facts function works
+        facts = get_random_facts(3)
+        assert isinstance(facts, list)
+        assert len(facts) == 3
+        assert all(isinstance(fact, str) for fact in facts)
+        
+        # Test that random quote function works
+        quote = get_random_quote()
+        assert isinstance(quote, str)
+        assert len(quote) > 0
+        
+        # Test that random advice function works
+        advice = get_random_advice()
+        assert isinstance(advice, str)
+        assert len(advice) > 0
+        
+        # Test with CLI command (without actually running it)
+        import io
+        import sys
+        from contextlib import redirect_stdout
+        from safespace.bio_cli import fallback_display
+        
+        # Test fallback display doesn't crash
+        f = io.StringIO()
+        with redirect_stdout(f):
+            try:
+                fallback_display()
+                output = f.getvalue()
+                assert "GRIFFIN: THE PROGRAMMING GOD" in output
+                assert "Fun Facts:" in output
+                assert "Words of Wisdom:" in output
+                assert "Daily Advice:" in output
+            except Exception as e:
+                pytest.fail(f"fallback_display() raised {type(e).__name__} unexpectedly: {e}")
+
+if __name__ == "__main__":
+    pytest.main()

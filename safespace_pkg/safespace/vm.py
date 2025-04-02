@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any, Union
 
 from .utils import log_status, Colors, run_command, sudo_command
+from .settings import get_settings
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,15 +25,33 @@ logger = logging.getLogger(__name__)
 @dataclass
 class VMConfig:
     """Virtual Machine Configuration"""
-    memory: str = "1024M"
-    cpus: int = 2
-    disk_size: str = "10G"
-    iso_url: Optional[str] = None
-    iso_sha256_url: Optional[str] = None
-    mac_address: Optional[str] = None
-    use_network: bool = False
-    use_kvm: bool = True
-    headless: bool = False
+    memory: str
+    cpus: int
+    disk_size: str
+    iso_url: Optional[str]
+    iso_sha256_url: Optional[str]
+    mac_address: Optional[str]
+    use_network: bool
+    use_kvm: bool
+    headless: bool
+    
+    @classmethod
+    def from_settings(cls) -> "VMConfig":
+        """Create a VM configuration from settings"""
+        settings = get_settings()
+        vm_settings = settings.vm
+        
+        return cls(
+            memory=vm_settings.default_memory,
+            cpus=vm_settings.default_cpus,
+            disk_size=vm_settings.default_disk_size,
+            iso_url=None,  # Will be set later based on Alpine version
+            iso_sha256_url=None,  # Will be set later based on Alpine version
+            mac_address=None,  # Will be generated randomly
+            use_network=False,  # Default to false, will be configured if needed
+            use_kvm=vm_settings.default_use_kvm,
+            headless=vm_settings.default_headless
+        )
 
 
 class VMManager:
@@ -52,10 +71,14 @@ class VMManager:
             sudo_password: Optional sudo password for privileged operations
             config: Optional VM configuration
         """
+        # Get settings
+        settings = get_settings()
+        vm_settings = settings.vm
+        
         self.env_dir = env_dir
         self.sudo_password = sudo_password
         self.vm_dir = env_dir / "vm"
-        self.config = config or VMConfig()
+        self.config = config or VMConfig.from_settings()
         self.is_linux = platform.system() == "Linux"
         self.is_macos = platform.system() == "Darwin"
         self.network_namespace = None
@@ -67,7 +90,7 @@ class VMManager:
         
         # Set default Alpine Linux image if none specified
         if not self.config.iso_url:
-            alpine_version = "3.19.1"
+            alpine_version = vm_settings.default_alpine_version
             self.config.iso_url = f"https://dl-cdn.alpinelinux.org/alpine/v{alpine_version.split('.')[0]}.{alpine_version.split('.')[1]}/releases/x86_64/alpine-virt-{alpine_version}-x86_64.iso"
             self.config.iso_sha256_url = f"https://dl-cdn.alpinelinux.org/alpine/v{alpine_version.split('.')[0]}.{alpine_version.split('.')[1]}/releases/x86_64/alpine-virt-{alpine_version}-x86_64.iso.sha256"
     

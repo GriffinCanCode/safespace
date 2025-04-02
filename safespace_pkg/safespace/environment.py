@@ -28,6 +28,7 @@ from .network import NetworkIsolation
 from .vm import VMManager, VMConfig
 from .container import ContainerManager, ContainerConfig
 from .testing import TestEnvironment
+from .settings import get_settings
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -42,7 +43,10 @@ class SafeEnvironment:
         sudo_password: Optional[str] = None
     ) -> None:
         """Initialize a safe environment"""
-        self.internal_mode = internal_mode
+        # Get settings
+        settings = get_settings()
+        
+        self.internal_mode = internal_mode or settings.general.default_internal_mode
         self.sudo_password = sudo_password
         self.env_vars: Dict[str, str] = {}
         self.network_isolation: Optional[NetworkIsolation] = None
@@ -318,6 +322,10 @@ class SafeEnvironment:
         Returns:
             bool: True if setup was successful, False otherwise
         """
+        # Get settings
+        settings = get_settings()
+        testing_settings = settings.testing
+        
         if self.test_environment is not None and self.comprehensive_test_enabled:
             logger.warning("Comprehensive testing environment already set up")
             return True
@@ -344,6 +352,10 @@ class SafeEnvironment:
         Returns:
             bool: True if setup was successful, False otherwise
         """
+        # Get settings
+        settings = get_settings()
+        enhanced_dev_settings = settings.enhanced_dev
+        
         if self.test_environment is not None and self.enhanced_dev_enabled:
             logger.warning("Enhanced development environment already set up")
             return True

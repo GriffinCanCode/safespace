@@ -17,6 +17,19 @@ from .resource_manager import ResourceManager, ResourceConfig, get_resource_mana
 from .network import NetworkIsolation
 from .vm import VMConfig, VMManager
 from .testing import TestEnvironment
+from .bio_cli import show_author
+from .settings import (
+    get_settings,
+    reload_settings,
+    SafeSpaceSettings,
+    GeneralSettings,
+    NetworkSettings,
+    VMSettings,
+    ContainerSettings,
+    TestingSettings,
+    EnhancedDevSettings,
+    ResourceSettings,
+)
 from .utils import (
     check_directory_permissions,
     check_directory_writable,

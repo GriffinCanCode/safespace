@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 
 from .utils import log_status, Colors
+from .settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,10 @@ class NetworkIsolation:
             env_dir: Path to the environment directory
             sudo_password: Optional sudo password for privileged operations
         """
+        # Get settings
+        settings = get_settings()
+        network_settings = settings.network
+        
         self.env_dir = env_dir
         self.sudo_password = sudo_password
         self.namespace_name = "safespace_net"
@@ -36,16 +41,24 @@ class NetworkIsolation:
         self.is_linux = platform.system() == "Linux"
         self.is_macos = platform.system() == "Darwin"
         
+        # Apply settings
+        self.network_cidr = network_settings.default_subnet
+        self.create_tap_device = network_settings.create_tap_device
+        self.enable_nat = network_settings.enable_nat
+        
+        # Extract network components from CIDR
+        network_parts = self.network_cidr.split('/')
+        base_ip = network_parts[0].rsplit('.', 1)[0]
+        
         # Platform-specific settings
         if self.is_macos:
             self.tap_interface = "utun7"  # macOS uses utun interfaces
         else:
             self.tap_interface = "tap0"
             
-        self.host_ip = "192.168.100.1"
-        self.namespace_ip = "192.168.100.2"
-        self.tap_ip = "192.168.100.3"
-        self.network_cidr = "192.168.100.0/24"
+        self.host_ip = f"{base_ip}.1"
+        self.namespace_ip = f"{base_ip}.2"
+        self.tap_ip = f"{base_ip}.3"
         self.env_file = env_dir / ".env"
         
     def _sudo_cmd(self, cmd: List[str]) -> Tuple[int, str, str]:

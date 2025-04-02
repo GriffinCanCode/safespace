@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 
 from .utils import log_status, Colors, run_command, create_secure_directory
+from .settings import get_settings
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -27,6 +28,11 @@ class TestEnvironment:
         Args:
             env_dir: Path to the environment directory
         """
+        # Get settings
+        self.settings = get_settings()
+        self.testing_settings = self.settings.testing
+        self.enhanced_dev_settings = self.settings.enhanced_dev
+        
         self.env_dir = env_dir
         self.config_dir = env_dir / "config"
         self.tests_dir = env_dir / "tests"
