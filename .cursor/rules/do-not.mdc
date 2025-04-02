@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+Do extensive research before answering, scan ALL files, and DO NOT make up anything. Ensure all answers and changes are backedup by research of my codebase specficially not ideas or assumptions based on limited reading. Assume all changes will break something, so research first.
+
+- You can @ files here
+- You can use markdown but dont have to

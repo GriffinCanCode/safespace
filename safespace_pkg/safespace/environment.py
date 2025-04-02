@@ -26,6 +26,7 @@ from .utils import (
 )
 from .network import NetworkIsolation
 from .vm import VMManager, VMConfig
+from .container import ContainerManager, ContainerConfig
 from .testing import TestEnvironment
 
 # Set up logging
@@ -48,6 +49,8 @@ class SafeEnvironment:
         self.network_enabled = False
         self.vm_manager: Optional[VMManager] = None
         self.vm_enabled = False
+        self.container_manager: Optional[ContainerManager] = None
+        self.container_enabled = False
         self.test_environment: Optional[TestEnvironment] = None
         self.comprehensive_test_enabled = False
         self.enhanced_dev_enabled = False
@@ -258,6 +261,56 @@ class SafeEnvironment:
         self.vm_manager = None
         return False
     
+    def setup_container(self,
+                      image: Optional[str] = None,
+                      memory: Optional[str] = None, 
+                      cpus: Optional[float] = None, 
+                      storage_size: Optional[str] = None,
+                      network_enabled: bool = False,
+                      privileged: bool = False,
+                      mount_workspace: bool = True
+                      ) -> bool:
+        """
+        Set up a container for the environment.
+        
+        Args:
+            image: Container image to use (e.g., 'alpine:latest')
+            memory: Memory limit for the container (e.g., '512m')
+            cpus: CPU limit for the container (e.g., 1.0)
+            storage_size: Storage size for the container (e.g., '5G')
+            network_enabled: Whether to enable networking
+            privileged: Whether to run in privileged mode
+            mount_workspace: Whether to mount the workspace directory
+            
+        Returns:
+            bool: True if setup was successful, False otherwise
+        """
+        if self.container_manager is not None:
+            logger.warning("Container already set up")
+            return True
+            
+        # Create container configuration
+        container_config = ContainerConfig(
+            image=image or "alpine:latest",
+            memory=memory or "512m",
+            cpus=cpus or 1.0,
+            storage_size=storage_size or "5G",
+            network_enabled=network_enabled,
+            privileged=privileged,
+            mount_workspace=mount_workspace
+        )
+        
+        # Create container manager
+        self.container_manager = ContainerManager(self.root_dir, self.sudo_password, container_config)
+        
+        # Set up container
+        if self.container_manager.setup():
+            self.container_enabled = True
+            return True
+        
+        self.container_manager = None
+        return False
+    
     def setup_comprehensive_testing(self) -> bool:
         """
         Set up a comprehensive testing environment.
@@ -347,6 +400,44 @@ class SafeEnvironment:
             return False
             
         return self.vm_manager.is_running()
+    
+    def start_container(self) -> bool:
+        """
+        Start the container.
+        
+        Returns:
+            bool: True if container was started successfully, False otherwise
+        """
+        if not self.container_enabled or self.container_manager is None:
+            logger.error("Container not enabled or not set up")
+            return False
+            
+        return self.container_manager.start()
+    
+    def stop_container(self) -> bool:
+        """
+        Stop the container.
+        
+        Returns:
+            bool: True if container was stopped successfully, False otherwise
+        """
+        if not self.container_enabled or self.container_manager is None:
+            logger.error("Container not enabled or not set up")
+            return False
+            
+        return self.container_manager.stop()
+    
+    def is_container_running(self) -> bool:
+        """
+        Check if the container is running.
+        
+        Returns:
+            bool: True if container is running, False otherwise
+        """
+        if not self.container_enabled or self.container_manager is None:
+            return False
+            
+        return self.container_manager.is_running()
         
     def run_in_network(self, cmd: List[str]) -> Tuple[int, str, str]:
         """
@@ -364,6 +455,22 @@ class SafeEnvironment:
             
         return self.network_isolation.run_command(cmd)
     
+    def run_in_container(self, cmd: List[str]) -> Tuple[int, str, str]:
+        """
+        Run a command in the container.
+        
+        Args:
+            cmd: Command to run as a list of strings
+            
+        Returns:
+            Tuple of (return_code, stdout, stderr)
+        """
+        if not self.container_enabled or self.container_manager is None:
+            logger.error("Container isolation not enabled")
+            return 1, "", "Container isolation not enabled"
+            
+        return self.container_manager.run_command(cmd)
+    
     def cleanup(self, keep_dir: bool = False) -> None:
         """Clean up the environment"""
         # Clean up testing artifacts if enabled
@@ -372,7 +479,13 @@ class SafeEnvironment:
             self.comprehensive_test_enabled = False
             self.enhanced_dev_enabled = False
         
-        # Clean up VM first if enabled
+        # Clean up container if enabled
+        if self.container_enabled and self.container_manager is not None:
+            self.container_manager.cleanup()
+            self.container_enabled = False
+            self.container_manager = None
+        
+        # Clean up VM if enabled
         if self.vm_enabled and self.vm_manager is not None:
             self.vm_manager.cleanup()
             self.vm_enabled = False
@@ -747,29 +860,3 @@ bandit -r src
                     sudo_command(f"rm -rf {internal_dir}", self.sudo_password)
                 else:
                     log_status("Failed to remove environment directory", Colors.RED)
-        
-        # Clean up any stray cache files in the parent directory
-        for cache_file in current_dir.glob(".internal_*.cache"):
-            cache_file.unlink()
-        
-        for pytest_cache in current_dir.glob(".pytest_cache"):
-            if pytest_cache.is_dir():
-                shutil.rmtree(pytest_cache)
-        
-        for pycache in current_dir.glob("__pycache__"):
-            if pycache.is_dir():
-                shutil.rmtree(pycache)
-        
-        # Remove any environment-specific entries from .gitignore
-        gitignore_file = current_dir / ".gitignore"
-        if gitignore_file.exists():
-            log_status("Updating .gitignore...", Colors.YELLOW)
-            lines = gitignore_file.read_text().splitlines()
-            new_lines = [line for line in lines 
-                        if not line.startswith(".internal") 
-                        and not line.startswith(".internal_backup_")]
-            
-            gitignore_file.write_text("\n".join(new_lines) + "\n")
-        
-        log_status("Environment foreclosure complete", Colors.GREEN)
-        log_status("All environment files and directories have been removed", Colors.GREEN)

@@ -1,161 +1,152 @@
 # SafeSpace
 
-SafeSpace is a comprehensive environment isolation and testing tool. It creates isolated testing environments with various safety features including network isolation, virtual machine environments, and comprehensive testing setups.
+A comprehensive environment isolation and testing tool that creates secure, isolated environments with configurable features.
 
-## Features
+<div align="center">
 
-- **Environment Isolation**: Create isolated filesystem environments for testing
-- **Network Isolation**: Create isolated network namespaces (Linux) or network controls (macOS)
-- **VM Mode**: Spin up lightweight virtual machines for complete isolation
-- **Comprehensive Testing Mode**: Generate testing environments with all necessary configurations
-- **Resource Optimization**: Automatically allocate resources based on system capabilities
-- **Cross-Platform Support**: Works on Linux and macOS
+![SafeSpace](https://img.shields.io/badge/SafeSpace-Environment%20Isolation-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Installation
+</div>
 
-### From PyPI (recommended):
+## 🔒 Core Features
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| **Environment Isolation** | Create isolated filesystem environments | ✅ Implemented |
+| **Resource Management** | Optimize resource allocation and caching | ✅ Implemented |
+| **Template System** | Pre-configured environment templates | ✅ Implemented |
+| **Network Isolation** | Create isolated network namespaces | ✅ Implemented |
+| **VM Integration** | Lightweight virtual machines for complete isolation | ✅ Implemented |
+| **Testing Framework** | Comprehensive testing environments | ✅ Implemented |
+
+## 📋 Environment Template Types
+
+<details>
+<summary>Click to view available templates</summary>
+
+| Template ID | Name | Description |
+|-------------|------|-------------|
+| `basic` | Basic Test | Basic testing environment with minimal configuration |
+| `network` | Isolated Network | Environment with network isolation for testing network boundaries |
+| `vm` | VM Based | Environment with VM support for isolated execution testing |
+| `comprehensive` | Comprehensive | Full-featured environment with network isolation, VM, and enhanced testing |
+| `development` | Enhanced Development | Environment optimized for development with IDE integration and tooling |
+| `performance` | Performance Test | Environment configured for performance benchmarking and testing |
+
+</details>
+
+## 🚀 Installation
 
 ```bash
+# From PyPI
 pip install safespace
+
+# With optional dependencies
+pip install safespace[network]  # For network isolation features
+pip install safespace[vm]       # For VM features
+pip install safespace[dev]      # For development
 ```
 
-### With optional dependencies:
-
-```bash
-# For network isolation features
-pip install safespace[network]
-
-# For VM features
-pip install safespace[vm]
-
-# For development
-pip install safespace[dev]
-```
-
-### From source:
-
-```bash
-git clone https://github.com/griffincancode/safespace.git
-cd safespace
-pip install -e .
-```
-
-## Usage
+## 💻 Usage
 
 ### Basic Usage
 
-Create an isolated environment:
-
 ```bash
+# Create a basic isolated environment
 safespace
-```
 
-### Network Isolation
-
-Create an environment with network isolation:
-
-```bash
+# Create with network isolation
 safespace --network
-```
 
-### VM Mode
-
-Create an environment with a virtual machine:
-
-```bash
+# Create with VM support
 safespace --vm
-```
 
-### Comprehensive Testing Mode
-
-Create a comprehensive testing environment:
-
-```bash
+# Create with comprehensive testing
 safespace --test
-```
 
-### Enhanced Mode
-
-Create an enhanced development environment:
-
-```bash
+# Create with enhanced development features
 safespace --enhanced
 ```
 
-### Internal Mode
-
-Create/manage an internal testing environment:
+### Additional Configuration
 
 ```bash
+# Configure VM resources
+safespace --vm --memory=4G --cpus=4 --disk=20G
+
+# Internal mode for persistent environments
 safespace internal
-```
 
-### Cleanup
-
-Clean up an environment:
-
-```bash
+# Clean up an environment
 safespace --cleanup
-```
 
-### Complete Removal (Foreclose)
-
-Completely remove an environment:
-
-```bash
+# Completely remove an internal environment
 safespace foreclose
 ```
 
-## Configuration
+## 🔄 Resource Management
 
-SafeSpace can be configured with the following options:
+SafeSpace includes a sophisticated resource manager that:
 
-- `--memory=SIZE`: Specify VM memory size (e.g., "2G")
-- `--cpus=NUM`: Specify number of CPUs for VM
-- `--disk=SIZE`: Specify VM disk size (e.g., "20G")
+- Intelligently allocates performance and efficiency cores
+- Manages cache size and cleanup
+- Optimizes resource usage based on system capabilities
 
-## Development
+```mermaid
+graph TD
+    A[System Resources] --> B[Resource Manager]
+    B --> C[Performance Cores]
+    B --> D[Efficiency Cores]
+    B --> E[Cache Management]
+    C --> F[High-Priority Tasks]
+    D --> G[Background Tasks]
+    E --> H[Auto-Cleanup]
+```
 
-This package is currently under development. The core functionality has been implemented, but some advanced features are still in progress:
+## 🏗️ Architecture
 
-### Implemented Features
-- Basic environment isolation and management
-- Resource management and optimization
-- Internal mode for creating persistent test environments
-- Command-line interface with core commands
-- Utility functions for working with files, directories, and processes
+SafeSpace uses a modular architecture with the following components:
 
-### In Progress
-- Network isolation mode
-- VM mode
-- Comprehensive testing environment generators
-- Platform-specific optimizations
+```mermaid
+graph LR
+    A[SafeEnvironment] --> B[NetworkIsolation]
+    A --> C[VMManager]
+    A --> D[TestEnvironment]
+    A --> E[ResourceManager]
+    F[Templates] --> A
+```
 
-### Contributing
-Contributions are welcome! Here's how you can help:
+## 🧪 Testing Features
 
-1. **Run the tests**:
-   ```bash
-   pytest
-   ```
+Environments can be configured with comprehensive testing capabilities:
 
-2. **Build the package locally**:
-   ```bash
-   python -m build
-   ```
+- Directory structure for tests, source code, and configuration
+- Pre-configured testing tools (pytest, pytest-cov, pytest-benchmark)
+- Code quality tools (black, isort, mypy, ruff)
+- Security scanning (safety, bandit)
 
-3. **Install in development mode**:
-   ```bash
-   pip install -e .
-   ```
+## 📦 Environment Features
 
-4. **Areas that need help**:
-   - Adding tests for the CLI
-   - Implementing network isolation for macOS
-   - Enhancing VM support
-   - Improving documentation
+### Directory Structure
 
-## License
+```
+safe_env/
+├── cache/      # Cache directory
+├── logs/       # Log files
+├── data/       # Environment data
+├── tmp/        # Temporary files
+└── .env        # Environment variables
+```
+
+### Enhanced Development Environment
+
+- IDE support (VS Code settings)
+- Git hooks (pre-commit configuration)
+- CI/CD workflows
+- Development scripts
+
+## 📄 License
 
 MIT
 

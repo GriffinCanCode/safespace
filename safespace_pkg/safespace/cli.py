@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 @click.option("--cpus", type=int, help="Specify number of CPUs for VM")
 @click.option("--disk", help="Specify VM disk size (e.g., '20G')")
 @click.option("--debug", is_flag=True, help="Enable debug logging")
+@click.option("--wordspace", is_flag=True, help="Show comprehensive documentation")
+@click.option("--wordspace-section", help="Show specific documentation section")
+@click.option("--wordspace-tree", is_flag=True, help="Show documentation in tree view")
 @click.version_option(version=__version__)
 @click.pass_context
 def main(
@@ -42,6 +45,9 @@ def main(
     cpus: Optional[int],
     disk: Optional[str],
     debug: bool,
+    wordspace: bool,
+    wordspace_section: Optional[str],
+    wordspace_tree: bool,
 ) -> None:
     """
     SafeSpace - Safe Environment Creator and Manager
@@ -63,6 +69,15 @@ def main(
     ctx.obj["vm_cpus"] = cpus
     ctx.obj["vm_disk"] = disk
     ctx.obj["debug"] = debug
+    ctx.obj["wordspace"] = wordspace
+    ctx.obj["wordspace_section"] = wordspace_section
+    ctx.obj["wordspace_tree"] = wordspace_tree
+    
+    # Check if wordspace documentation is requested
+    if wordspace or wordspace_section is not None or wordspace_tree:
+        from .docs.documentation_cli import display_documentation
+        display_documentation(wordspace_section, wordspace_tree)
+        sys.exit(0)
     
     # Print banner if not running a subcommand
     if ctx.invoked_subcommand is None:

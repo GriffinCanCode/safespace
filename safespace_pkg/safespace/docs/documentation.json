@@ -1,0 +1,224 @@
+{
+  "name": "SafeSpace",
+  "version": "current",
+  "description": "SafeSpace is a tool that creates isolated testing environments with various safety features, allowing for secure testing and development.",
+  "sections": [
+    {
+      "title": "Core Concepts",
+      "id": "core-concepts",
+      "content": "SafeSpace creates isolated environments for testing and development with configurable levels of isolation, including network isolation, VM isolation, and container-based isolation. These environments can be customized for specific testing scenarios using templates.",
+      "subsections": [
+        {
+          "title": "Isolation Levels",
+          "id": "isolation-levels",
+          "content": "SafeSpace supports multiple isolation levels:\n- **Filesystem isolation**: Basic isolation at the filesystem level\n- **Network isolation**: Separate network namespace with controlled access\n- **Container isolation**: Docker/Podman container-based isolation\n- **VM isolation**: Complete isolation using lightweight VMs"
+        },
+        {
+          "title": "Environment Directory Structure",
+          "id": "directory-structure",
+          "content": "Each SafeSpace environment has the following structure:\n- `cache/`: Cache files for the environment\n- `logs/`: Log files\n- `data/`: Data storage\n- `tmp/`: Temporary files\n- `.env`: Environment variables\n- `vm/`: VM-related files (if VM mode is enabled)\n- `container/`: Container-related files (if container mode is enabled)"
+        }
+      ]
+    },
+    {
+      "title": "Environment Templates",
+      "id": "templates",
+      "content": "SafeSpace provides predefined environment templates for common testing scenarios. These templates can be used to quickly set up specific testing environments with various features enabled.",
+      "subsections": [
+        {
+          "title": "Basic Test Template",
+          "id": "basic-test",
+          "content": "**ID**: `basic`\n**Description**: Basic testing environment with minimal configuration\n\nThis template sets up a simple environment with comprehensive testing capabilities but without additional isolation mechanisms.",
+          "parameters": {}
+        },
+        {
+          "title": "Isolated Network Template",
+          "id": "isolated-network",
+          "content": "**ID**: `network`\n**Description**: Environment with network isolation for testing network boundaries\n\nThis template sets up an environment with network isolation, creating a separate network namespace with controlled access to the host network.",
+          "parameters": {}
+        },
+        {
+          "title": "VM-Based Template",
+          "id": "vm-based",
+          "content": "**ID**: `vm`\n**Description**: Environment with VM support for isolated execution testing\n\nThis template sets up an environment with a virtual machine for complete isolation. The VM is configured with Alpine Linux by default.",
+          "parameters": {
+            "memory": "Memory size for the VM (e.g., '2G')",
+            "cpus": "Number of CPUs for the VM",
+            "disk_size": "Disk size for the VM (e.g., '10G')",
+            "headless": "Whether to run the VM in headless mode"
+          }
+        },
+        {
+          "title": "Container-Based Template",
+          "id": "container-based",
+          "content": "**ID**: `container`\n**Description**: Environment with container support for isolated execution testing\n\nThis template sets up an environment with a container (Docker or Podman) for lightweight isolation.",
+          "parameters": {
+            "image": "Container image to use (e.g., 'alpine:latest')",
+            "memory": "Memory limit for the container (e.g., '512m')",
+            "cpus": "CPU limit for the container (e.g., 1.0)",
+            "storage_size": "Storage size for the container (e.g., '5G')",
+            "network_enabled": "Whether to enable networking",
+            "privileged": "Whether to run in privileged mode",
+            "mount_workspace": "Whether to mount the workspace directory"
+          }
+        },
+        {
+          "title": "Comprehensive Template",
+          "id": "comprehensive",
+          "content": "**ID**: `comprehensive`\n**Description**: Full-featured environment with network isolation, VM, container, and enhanced testing\n\nThis template sets up a complete environment with all isolation mechanisms and testing features enabled.",
+          "parameters": {
+            "memory": "Memory size for the VM (e.g., '4G')",
+            "cpus": "Number of CPUs for the VM (e.g., 4)",
+            "disk_size": "Disk size for the VM (e.g., '20G')",
+            "headless": "Whether to run the VM in headless mode",
+            "container_image": "Container image to use (e.g., 'alpine:latest')",
+            "container_memory": "Memory limit for the container (e.g., '1g')",
+            "container_cpus": "CPU limit for the container (e.g., 2.0)"
+          }
+        },
+        {
+          "title": "Enhanced Development Template",
+          "id": "enhanced-dev",
+          "content": "**ID**: `development`\n**Description**: Environment optimized for development with IDE integration and tooling\n\nThis template sets up an environment optimized for development with additional tooling and IDE integration.",
+          "parameters": {}
+        },
+        {
+          "title": "Performance Test Template",
+          "id": "performance-test",
+          "content": "**ID**: `performance`\n**Description**: Environment configured for performance benchmarking and testing\n\nThis template sets up an environment specifically configured for performance testing and benchmarking.",
+          "parameters": {}
+        }
+      ]
+    },
+    {
+      "title": "Features",
+      "id": "features",
+      "content": "SafeSpace provides various features for creating and managing isolated testing environments.",
+      "subsections": [
+        {
+          "title": "Network Isolation",
+          "id": "network-isolation",
+          "content": "Network isolation creates a separate network namespace for the environment, providing controlled access to the network. This allows testing network-related code without affecting the host system.\n\n**Usage**: `safespace --network`\n\nWhen network isolation is enabled, SafeSpace creates a separate network namespace and configures it for proper connectivity. Network traffic is isolated from the host system, and you can run commands in the isolated network namespace using the `safespace --network -- <command>` syntax."
+        },
+        {
+          "title": "VM Isolation",
+          "id": "vm-isolation",
+          "content": "VM isolation provides complete isolation using lightweight virtual machines. This is useful for testing code that requires full system isolation.\n\n**Usage**: `safespace --vm [--memory <size>] [--cpus <count>] [--disk <size>]`\n\nWhen VM isolation is enabled, SafeSpace creates a QEMU/KVM virtual machine with Alpine Linux by default. You can customize the VM with options like memory size, CPU count, and disk size. The VM can be started and stopped as needed, and you can access it through the console or SSH.",
+          "parameters": {
+            "memory": "Memory size for the VM (e.g., '2G')",
+            "cpus": "Number of CPUs for the VM",
+            "disk": "Disk size for the VM (e.g., '20G')"
+          }
+        },
+        {
+          "title": "Container Isolation",
+          "id": "container-isolation",
+          "content": "Container isolation provides lightweight isolation using Docker or Podman containers. This is useful for testing code that requires isolation but doesn't need a full VM.\n\nContainer isolation is available through templates or the SafeSpace API. It creates a container with the specified image and configuration, and you can run commands inside the container as needed."
+        },
+        {
+          "title": "Comprehensive Testing",
+          "id": "comprehensive-testing",
+          "content": "Comprehensive testing provides a complete testing environment with various testing tools and configurations. This includes pytest, pytest-cov, pytest-benchmark, black, isort, mypy, ruff, safety, and bandit.\n\n**Usage**: `safespace --test`\n\nWhen comprehensive testing is enabled, SafeSpace sets up a complete testing environment with all the necessary tools and configurations. You can run tests using the provided scripts or directly using the testing tools."
+        },
+        {
+          "title": "Enhanced Development Environment",
+          "id": "enhanced-development",
+          "content": "The enhanced development environment provides additional tools and configurations for development, such as IDE support, Git hooks, and CI/CD configurations.\n\n**Usage**: `safespace --enhanced`\n\nWhen enhanced development is enabled, SafeSpace sets up a development environment with VS Code settings, pre-commit hooks, GitHub Actions workflows, and development scripts."
+        }
+      ]
+    },
+    {
+      "title": "Commands",
+      "id": "commands",
+      "content": "SafeSpace provides various commands for creating and managing environments.",
+      "subsections": [
+        {
+          "title": "Main Command",
+          "id": "main-command",
+          "content": "The main command creates and configures an environment based on the provided options.\n\n**Usage**: `safespace [options]`\n\n**Options**:\n- `-n, --network`: Enable network isolation\n- `-v, --vm`: Enable VM mode\n- `-c, --cleanup`: Clean up environment (for internal mode)\n- `--test`: Enable comprehensive testing mode\n- `--enhanced`: Enable enhanced development environment\n- `--memory`: Specify VM memory size (e.g., '2G')\n- `--cpus`: Specify number of CPUs for VM\n- `--disk`: Specify VM disk size (e.g., '20G')\n- `--debug`: Enable debug logging\n- `--version`: Show version and exit"
+        },
+        {
+          "title": "Internal Command",
+          "id": "internal-command",
+          "content": "The internal command creates or manages an internal testing environment.\n\n**Usage**: `safespace internal [options]`\n\n**Options**:\n- `-c, --cleanup`: Clean up the internal environment"
+        },
+        {
+          "title": "Foreclose Command",
+          "id": "foreclose-command",
+          "content": "The foreclose command completely removes an environment and all backups.\n\n**Usage**: `safespace foreclose`\n\nThis command will remove the environment directory and all backup directories, as well as any associated files. This operation cannot be undone."
+        }
+      ]
+    },
+    {
+      "title": "Environment Management",
+      "id": "environment-management",
+      "content": "SafeSpace provides various methods for managing environments.",
+      "subsections": [
+        {
+          "title": "Creating Environments",
+          "id": "creating-environments",
+          "content": "Environments can be created using the CLI or the API. When creating an environment, you can specify various options like network isolation, VM mode, and testing mode.\n\n**CLI**: `safespace [options]`\n\n**API**:\n```python\nfrom safespace.environment import SafeEnvironment\nenv = SafeEnvironment()\nenv.create()\n```"
+        },
+        {
+          "title": "Using Templates",
+          "id": "using-templates",
+          "content": "Templates provide predefined configurations for common testing scenarios. You can create an environment from a template using the API.\n\n**API**:\n```python\nfrom safespace.templates import create_from_template\nenv = create_from_template('basic_test')\n```"
+        },
+        {
+          "title": "Cleaning Up Environments",
+          "id": "cleaning-up-environments",
+          "content": "Environments can be cleaned up using the CLI or the API. When cleaning up an environment, all resources are released and the environment directory is removed.\n\n**CLI**: `safespace -c`\n\n**API**:\n```python\nenv.cleanup()\n```"
+        }
+      ]
+    },
+    {
+      "title": "Advanced Usage",
+      "id": "advanced-usage",
+      "content": "SafeSpace provides various advanced features for specific use cases.",
+      "subsections": [
+        {
+          "title": "Custom Templates",
+          "id": "custom-templates",
+          "content": "You can create custom templates by extending the `EnvironmentTemplate` class. This allows you to define your own environment configuration for specific testing scenarios.\n\n```python\nfrom safespace.templates import EnvironmentTemplate\n\nclass MyTemplate(EnvironmentTemplate):\n    name = \"my_template\"\n    description = \"My custom template\"\n    \n    def _configure(self) -> None:\n        # Configure your environment here\n        if not self.env.setup_network_isolation():\n            logger.warning(\"Failed to set up network isolation\")\n```"
+        },
+        {
+          "title": "Integration with CI/CD",
+          "id": "ci-cd-integration",
+          "content": "SafeSpace can be integrated with CI/CD pipelines to provide isolated testing environments. This can be done by using the SafeSpace API in your CI/CD scripts or by using the CLI in your pipeline configuration.\n\n**Example GitHub Actions workflow**:\n```yaml\nname: Test\n\non: [push, pull_request]\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v3\n      - name: Set up Python\n        uses: actions/setup-python@v4\n        with:\n          python-version: '3.11'\n      - name: Install SafeSpace\n        run: pip install safespace\n      - name: Run tests in SafeSpace environment\n        run: safespace --test -- python -m pytest\n```"
+        },
+        {
+          "title": "Network Configuration",
+          "id": "network-configuration",
+          "content": "Network isolation in SafeSpace creates a separate network namespace with controlled access to the host network. This allows for testing network-related code without affecting the host system.\n\nWhen network isolation is enabled, SafeSpace creates a network namespace and configures it with a private network. The namespace has a default route to the host system, allowing controlled access to the outside network."
+        }
+      ]
+    },
+    {
+      "title": "Troubleshooting",
+      "id": "troubleshooting",
+      "content": "Common issues and solutions when using SafeSpace.",
+      "subsections": [
+        {
+          "title": "Permission Issues",
+          "id": "permission-issues",
+          "content": "If you encounter permission issues when using SafeSpace, make sure you have the necessary permissions or provide a sudo password when creating the environment:\n\n```python\nenv = SafeEnvironment(sudo_password=\"your_password\")\n```\n\nAlternatively, you can set the `SUDO_PASSWORD` environment variable."
+        },
+        {
+          "title": "VM Issues",
+          "id": "vm-issues",
+          "content": "If you encounter issues with VM mode, make sure QEMU/KVM is installed and properly configured on your system. On Linux, you may need to install the `qemu-kvm` package and ensure your user is in the `kvm` group."
+        },
+        {
+          "title": "Container Issues",
+          "id": "container-issues",
+          "content": "If you encounter issues with container mode, make sure Docker or Podman is installed and properly configured on your system. On Linux, you may need to add your user to the `docker` group to use Docker without sudo."
+        },
+        {
+          "title": "Network Isolation Issues",
+          "id": "network-isolation-issues",
+          "content": "Network isolation requires elevated privileges to create network namespaces. Make sure you provide a sudo password when creating the environment or set the `SUDO_PASSWORD` environment variable."
+        }
+      ]
+    }
+  ]
+} 
