@@ -10,12 +10,16 @@ import sys
 import json
 import logging
 import time
-from dataclasses import dataclass
+import platform
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import psutil
+
+from .settings import get_settings
+from .utils import log_status, Colors, format_size
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -284,41 +288,117 @@ class ResourceManager:
         }
     
     def cleanup_cache(self) -> None:
-        """Clean up the cache directory based on cache limits"""
-        if not self.cache_dir.exists():
-            return
+        """
+        Clean up cache directory based on cache_limit_bytes.
         
-        # Get all files in cache dir
-        cache_files = list(self.cache_dir.glob("**/*"))
-        cache_files = [f for f in cache_files if f.is_file()]
+        This method removes old cache files to keep the cache size
+        under the configured limit. It also uses the content-addressable 
+        cache system if available.
+        """
+        # Get resource status to ensure we have the latest metrics
+        self.update_resource_status()
         
-        # Calculate total size
-        total_size = sum(f.stat().st_size for f in cache_files)
-        
-        # If we're under the limit, do nothing
-        if total_size <= self.config.cache_limit_bytes:
-            return
-        
-        # Sort by access time (oldest first)
-        cache_files.sort(key=lambda f: f.stat().st_atime)
-        
-        # Remove files until we're under the limit
-        for file in cache_files:
-            if total_size <= self.config.cache_limit_bytes:
-                break
+        try:
+            # Import artifact_cache here to avoid circular imports
+            from .artifact_cache import (
+                get_vm_image_cache, 
+                get_test_artifact_cache
+            )
             
-            size = file.stat().st_size
-            try:
-                file.unlink()
-                total_size -= size
-                logger.debug(f"Removed cache file: {file}")
-            except OSError as e:
-                logger.warning(f"Failed to remove cache file {file}: {e}")
+            # Check if the cache directory exists
+            if not self.config.cache_dir.exists():
+                return
+            
+            # Get the current cache size
+            cache_size = sum(
+                f.stat().st_size for f in self.config.cache_dir.glob('**/*')
+                if f.is_file()
+            )
+            
+            # If we're under the limit, no cleanup needed
+            if cache_size <= self.config.cache_limit_bytes:
+                return
+            
+            # If content-addressable cache is available, use it for cleanup
+            vm_image_cache = get_vm_image_cache(self.config.cache_dir / "vm")
+            test_artifact_cache = get_test_artifact_cache(self.config.cache_dir / "test")
+            
+            # Calculate how much space we need to free up
+            bytes_to_free = cache_size - self.config.cache_limit_bytes
+            bytes_freed = 0
+            
+            # Clean up VM images if needed (prioritize VM image cleanup)
+            if bytes_freed < bytes_to_free:
+                # Clean VM image cache with appropriate limit
+                remaining_bytes_needed = bytes_to_free - bytes_freed
+                vm_cache_limit = max(0, self.config.cache_limit_bytes // 2)
+                vm_bytes_freed = vm_image_cache.cache.cleanup(vm_cache_limit)
+                bytes_freed += vm_bytes_freed
+            
+            # Clean up test artifacts if needed
+            if bytes_freed < bytes_to_free:
+                # Clean test artifact cache with appropriate limit
+                test_artifact_cache.cleanup_test_artifacts(max_age_days=7)
+            
+            # Fallback to traditional cleanup if needed
+            if bytes_freed < bytes_to_free:
+                self._traditional_cache_cleanup()
+                
+            logger.info(f"Cache cleaned up: freed {format_size(bytes_freed)}")
+            
+        except ImportError:
+            # Fallback to traditional cleanup if artifact_cache module is not available
+            self._traditional_cache_cleanup()
+    
+    def _traditional_cache_cleanup(self) -> None:
+        """Traditional cache cleanup method as fallback."""
+        try:
+            # Check if the cache directory exists
+            if not self.config.cache_dir.exists():
+                return
+            
+            # Get all files in the cache directory with their modification time
+            cache_files = [
+                (f, f.stat().st_mtime) for f in self.config.cache_dir.glob('**/*')
+                if f.is_file() and not f.name.startswith('.')
+            ]
+            
+            # Sort by modification time (oldest first)
+            cache_files.sort(key=lambda x: x[1])
+            
+            # Calculate total size
+            total_size = sum(f.stat().st_size for f, _ in cache_files)
+            
+            # Remove files until we're under the limit
+            for file_path, _ in cache_files:
+                if total_size <= self.config.cache_limit_bytes:
+                    break
+                    
+                # Get file size before removing
+                file_size = file_path.stat().st_size
+                
+                # Remove the file
+                try:
+                    file_path.unlink()
+                    total_size -= file_size
+                    logger.debug(f"Removed cache file: {file_path}")
+                except OSError as e:
+                    logger.warning(f"Failed to remove cache file {file_path}: {e}")
+                    
+            logger.info(f"Cache cleanup complete. New size: {format_size(total_size)}")
+            
+        except Exception as e:
+            logger.exception(f"Error cleaning up cache: {e}")
     
     def adaptive_cache_limit(self) -> int:
-        """Dynamically adjust cache limit based on available disk space"""
+        """
+        Dynamically adjust cache limit based on available disk space.
+        
+        Returns:
+            int: Adjusted cache limit in bytes
+        """
         # Get disk stats for the cache directory's disk
-        disk_stats = psutil.disk_usage(str(self.cache_dir))
+        disk_stats = psutil.disk_usage(str(self.config.cache_dir))
         
         # Base cache limit is 10% of total memory
         base_limit = self.config.cache_limit_bytes

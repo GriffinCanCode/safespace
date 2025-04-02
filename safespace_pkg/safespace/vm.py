@@ -9,15 +9,20 @@ import logging
 import os
 import platform
 import random
+import re
 import shutil
+import stat
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Union
 
-from .utils import log_status, Colors, run_command, sudo_command
+from .artifact_cache import get_vm_image_cache
+from .utils import log_status, run_command, sudo_command
 from .settings import get_settings
+from .utils import Colors
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -145,50 +150,25 @@ class VMManager:
         # Create VM directory
         self.vm_dir.mkdir(parents=True, exist_ok=True)
         
-        # Download Alpine Linux for testing if not exists
+        # Get VM image using content-addressable storage
         iso_filename = Path(self.config.iso_url).name
         iso_path = self.vm_dir / iso_filename
         
-        if not iso_path.exists():
-            log_status(f"Downloading VM image: {iso_filename}...", Colors.YELLOW)
-            
-            # Download ISO
-            wget_cmd = f"wget -q -O {iso_path} {self.config.iso_url}"
-            result = run_command(wget_cmd)
-            if result.returncode != 0:
-                log_status(f"Failed to download VM image: {result.stderr}", Colors.RED)
-                return False
-                
-            # Download checksum
-            sha_path = self.vm_dir / f"{iso_filename}.sha256"
-            wget_cmd = f"wget -q -O {sha_path} {self.config.iso_sha256_url}"
-            result = run_command(wget_cmd)
-            if result.returncode != 0:
-                log_status(f"Failed to download checksum: {result.stderr}", Colors.RED)
-                return False
-                
-            # Verify checksum
-            log_status("Verifying VM image integrity...", Colors.YELLOW)
-            
-            # Different verification command based on OS
-            if self.is_linux:
-                verify_cmd = f"cd {self.vm_dir} && sha256sum -c {iso_filename}.sha256"
-            else:  # macOS
-                # Extract expected hash from the sha file
-                with open(sha_path, 'r') as f:
-                    hash_line = f.readline().strip()
-                    expected_hash = hash_line.split()[0]
-                
-                verify_cmd = f"cd {self.vm_dir} && echo '{expected_hash}  {iso_filename}' | shasum -a 256 -c"
-            
-            result = run_command(verify_cmd)
-            if result.returncode != 0:
-                log_status("VM image verification failed", Colors.RED)
-                os.unlink(iso_path)
-                os.unlink(sha_path)
-                return False
-                
-            log_status("VM image verified successfully", Colors.GREEN)
+        # Use the VM image cache
+        vm_image_cache = get_vm_image_cache(self.vm_dir.parent / "cache")
+        
+        log_status(f"Obtaining VM image: {iso_filename}...", Colors.YELLOW)
+        success = vm_image_cache.get_vm_image(
+            self.config.iso_url,
+            iso_path,
+            self.config.iso_sha256_url
+        )
+        
+        if not success:
+            log_status("Failed to obtain VM image", Colors.RED)
+            return False
+        
+        log_status("VM image obtained successfully", Colors.GREEN)
         
         # Create VM disk
         log_status("Creating VM disk image...", Colors.YELLOW)
@@ -500,3 +480,61 @@ vm_monitor() {{
             namespace: Name of the network namespace
         """
         self.network_namespace = namespace
+
+    def setup_vm(self) -> bool:
+        """Set up the VM environment"""
+        # Create VM directory if it doesn't exist
+        if not self.vm_dir.exists():
+            self.vm_dir.mkdir(parents=True)
+        
+        # Set up Alpine Linux image
+        if not self.config.iso_url:
+            # Default to Alpine Linux 3.18
+            alpine_version = "3.18.0"
+            self.config.iso_url = f"https://dl-cdn.alpinelinux.org/alpine/v{alpine_version.split('.')[0]}.{alpine_version.split('.')[1]}/releases/x86_64/alpine-virt-{alpine_version}-x86_64.iso"
+            self.config.iso_sha256_url = f"https://dl-cdn.alpinelinux.org/alpine/v{alpine_version.split('.')[0]}.{alpine_version.split('.')[1]}/releases/x86_64/alpine-virt-{alpine_version}-x86_64.iso.sha256"
+        
+        # Create VM disk image
+        disk_path = self.vm_dir / "disk.qcow2"
+        if not disk_path.exists():
+            log_status(f"Creating VM disk image ({self.config.disk_size})...", Colors.YELLOW)
+            
+            # Create QCOW2 disk image
+            qemu_img_cmd = f"qemu-img create -f qcow2 {disk_path} {self.config.disk_size}"
+            result = run_command(qemu_img_cmd)
+            
+            if result.returncode != 0:
+                log_status(f"Failed to create VM disk image: {result.stderr}", Colors.RED)
+                return False
+            
+            log_status("VM disk image created successfully", Colors.GREEN)
+        
+        # Get VM image (using content-addressable cache)
+        iso_filename = Path(self.config.iso_url).name
+        iso_path = self.vm_dir / iso_filename
+        
+        # Use the VM image cache
+        vm_image_cache = get_vm_image_cache(self.vm_dir.parent / "cache")
+        
+        log_status(f"Obtaining VM image: {iso_filename}...", Colors.YELLOW)
+        success = vm_image_cache.get_vm_image(
+            self.config.iso_url,
+            iso_path,
+            self.config.iso_sha256_url
+        )
+        
+        if not success:
+            log_status("Failed to obtain VM image", Colors.RED)
+            return False
+        
+        log_status("VM image obtained successfully", Colors.GREEN)
+        
+        # Create VM monitor socket directory
+        monitor_dir = self.vm_dir / "monitor"
+        monitor_dir.mkdir(exist_ok=True)
+        
+        # Create VM scripts
+        self._create_vm_scripts()
+        
+        log_status("VM setup completed successfully", Colors.GREEN)
+        return True

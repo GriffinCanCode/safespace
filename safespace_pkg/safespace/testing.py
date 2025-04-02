@@ -1,8 +1,9 @@
 """
-Testing Environment Module for SafeSpace
+Testing Environment for SafeSpace
 
-This module provides functionality for creating and managing comprehensive testing
-and enhanced development environments.
+This module provides testing environment setup and management functionality for
+the SafeSpace package. It helps to set up and manage testing environments and
+automates common testing tasks.
 """
 
 import logging
@@ -11,9 +12,11 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
+import atexit
 
 from .utils import log_status, Colors, run_command, create_secure_directory
 from .settings import get_settings
+from .artifact_cache import get_test_artifact_cache
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -533,3 +536,46 @@ echo "Dependencies updated successfully!"
             profile_file.unlink()
         
         log_status("Testing environment artifacts cleaned up", Colors.GREEN)
+
+def create_test_environment(workspace_dir: Path, cache_dir: Path = None) -> TestEnvironment:
+    """
+    Create a test environment for running tests.
+    
+    Args:
+        workspace_dir: Directory to create the test environment in
+        cache_dir: Optional cache directory for test artifacts
+        
+    Returns:
+        TestEnvironment: The created test environment
+    """
+    # Use content-addressable cache for test artifacts if a cache directory is provided
+    test_artifact_cache = None
+    if cache_dir:
+        test_artifact_cache = get_test_artifact_cache(cache_dir)
+    
+    # Create the test environment
+    env = TestEnvironment(workspace_dir)
+    
+    # Set up the environment
+    env.setup_comprehensive_testing()
+    
+    # Register cleanup to be done at process exit
+    atexit.register(lambda: cleanup_test_environment(env, test_artifact_cache))
+    
+    return env
+
+def cleanup_test_environment(env: TestEnvironment, test_artifact_cache=None) -> None:
+    """
+    Clean up a test environment.
+    
+    Args:
+        env: The environment to clean up
+        test_artifact_cache: Optional test artifact cache
+    """
+    if env:
+        # Clean up the environment
+        env.cleanup()
+        
+    # Clean up old test artifacts if we have a cache
+    if test_artifact_cache:
+        test_artifact_cache.cleanup_test_artifacts(max_age_days=7)

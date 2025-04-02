@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import stat
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, asdict
@@ -33,6 +34,8 @@ class ArtifactType(Enum):
     CONTAINER_IMAGE = "container_image"
     PACKAGE = "package"
     OTHER = "other"
+    CONFIG = "config"
+    DATA = "data"
 
 
 @dataclass
@@ -47,6 +50,11 @@ class ArtifactMetadata:
     access_time: float = field(default_factory=time.time)
     access_count: int = 0
     custom_metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Ensure type is an ArtifactType."""
+        if isinstance(self.type, str):
+            self.type = ArtifactType(self.type)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metadata to a dictionary for serialization"""
@@ -65,771 +73,530 @@ class ArtifactMetadata:
 
 class ContentAddressableCache:
     """
-    Content-addressable storage system for caching artifacts.
+    A content-addressable cache for artifacts.
     
-    This cache stores files based on their content hash, allowing for:
-    - Deduplication of identical files
-    - Verification of file integrity
-    - Quick lookup of previously seen files
-    - Efficient storage and retrieval of artifacts
+    Files are stored using their SHA256 hash as the key, allowing for deduplication
+    of identical files and verification of file integrity.
     """
     
-    def __init__(self, cache_dir: Path, max_size_bytes: int = None, 
-                 index_file: str = "artifacts.json") -> None:
+    def __init__(self, cache_dir: Path, default_artifact_type: ArtifactType = ArtifactType.OTHER):
         """
         Initialize the content-addressable cache.
         
         Args:
-            cache_dir: Directory to store cached artifacts
-            max_size_bytes: Maximum size of the cache in bytes. If None, no limit.
-            index_file: Name of the file to store the artifact index
+            cache_dir: The directory to use for the cache
+            default_artifact_type: The default artifact type to use
         """
         self.cache_dir = cache_dir
-        self.content_dir = cache_dir / "content"
-        self.metadata_dir = cache_dir / "metadata"
-        self.max_size_bytes = max_size_bytes
-        self.index_file = cache_dir / index_file
+        self.index_file = cache_dir / "cache_index.json"
+        self.default_artifact_type = default_artifact_type
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         
-        # Ensure cache directories exist
-        self.content_dir.mkdir(parents=True, exist_ok=True)
-        self.metadata_dir.mkdir(parents=True, exist_ok=True)
+        # Set up logger
+        self.logger = logging.getLogger(__name__)
         
-        # Load index file if it exists
+        # Initialize or load the artifact index
         self.artifact_index: Dict[str, ArtifactMetadata] = {}
         self._load_index()
     
-    def _compute_hash(self, file_path: Path) -> str:
-        """
-        Compute the SHA-256 hash of a file.
-        
-        Args:
-            file_path: Path to the file to hash
-            
-        Returns:
-            The SHA-256 hash digest as a hexadecimal string
-        """
-        hash_obj = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            # Read in chunks to handle large files
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_obj.update(chunk)
-        return hash_obj.hexdigest()
-    
-    def _compute_hash_from_url(self, url: str) -> Optional[str]:
-        """
-        Check if a URL contains a hash in its path or query parameters.
-        
-        Args:
-            url: The URL to check
-            
-        Returns:
-            The hash if found, None otherwise
-        """
-        parsed_url = urlparse(url)
-        path = parsed_url.path
-        
-        # Common patterns:
-        # 1. Hash in filename: /path/to/file-a1b2c3d4.ext
-        # 2. Hash in directory: /path/to/a1b2c3d4/file.ext
-        # 3. Hash in query: /path/to/file.ext?hash=a1b2c3d4
-        
-        # Check query params for hash
-        query_params = parsed_url.query.split('&')
-        for param in query_params:
-            if param.startswith('hash=') or param.startswith('sha256='):
-                return param.split('=')[1]
-        
-        return None
-    
     def _load_index(self) -> None:
-        """Load the artifact index from the index file"""
-        if not self.index_file.exists():
-            return
-        
-        try:
-            with open(self.index_file, "r") as f:
-                index_data = json.load(f)
+        """Load the artifact index from disk."""
+        if self.index_file.exists():
+            try:
+                with open(self.index_file, 'r') as f:
+                    index_data = json.load(f)
                 
-            for hash_val, metadata in index_data.items():
-                self.artifact_index[hash_val] = ArtifactMetadata.from_dict(metadata)
+                # Convert the loaded data to ArtifactMetadata objects
+                self.artifact_index = {}
+                for file_hash, metadata in index_data.items():
+                    self.artifact_index[file_hash] = ArtifactMetadata(
+                        hash=metadata['hash'],
+                        original_name=metadata['original_name'],
+                        type=ArtifactType(metadata['type']),
+                        size=metadata['size'],
+                        source_url=metadata.get('source_url'),
+                        creation_time=metadata['creation_time'],
+                        access_time=metadata['access_time'],
+                        access_count=metadata['access_count'],
+                        custom_metadata=metadata.get('metadata', {})
+                    )
                 
-            logger.debug(f"Loaded {len(self.artifact_index)} artifacts from cache index")
-        except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"Error loading cache index: {e}")
+                self.logger.info(f"Loaded cache index with {len(self.artifact_index)} artifacts")
+            except (json.JSONDecodeError, OSError) as e:
+                self.logger.warning(f"Failed to load cache index: {e}")
+                self.artifact_index = {}
     
     def _save_index(self) -> None:
-        """Save the artifact index to the index file"""
-        index_data = {
-            hash_val: metadata.to_dict() 
-            for hash_val, metadata in self.artifact_index.items()
-        }
-        
+        """Save the artifact index to disk."""
         try:
-            with open(self.index_file, "w") as f:
+            # Convert the ArtifactMetadata objects to dictionaries
+            index_data = {}
+            for file_hash, metadata in self.artifact_index.items():
+                index_data[file_hash] = {
+                    'hash': metadata.hash,
+                    'original_name': metadata.original_name,
+                    'type': metadata.type.value,
+                    'size': metadata.size,
+                    'source_url': metadata.source_url,
+                    'creation_time': metadata.creation_time,
+                    'access_time': metadata.access_time,
+                    'access_count': metadata.access_count,
+                    'metadata': metadata.custom_metadata
+                }
+            
+            # Write the index to disk
+            with open(self.index_file, 'w') as f:
                 json.dump(index_data, f, indent=2)
-        except (OSError, IOError) as e:
-            logger.error(f"Error saving cache index: {e}")
+                
+            self.logger.debug(f"Saved cache index with {len(self.artifact_index)} artifacts")
+        except OSError as e:
+            self.logger.warning(f"Failed to save cache index: {e}")
     
-    def _update_access_time(self, hash_val: str) -> None:
-        """Update the access time for an artifact"""
-        if hash_val in self.artifact_index:
-            self.artifact_index[hash_val].access_time = time.time()
-            self.artifact_index[hash_val].access_count += 1
-    
-    def _get_cache_size(self) -> int:
-        """Get the total size of all files in the cache"""
-        return sum(metadata.size for metadata in self.artifact_index.values())
-    
-    def _cleanup(self, required_space: int = 0) -> None:
+    def _update_access_time(self, file_hash: str) -> None:
         """
-        Clean up the cache to stay within size limits.
+        Update the access time and count for an artifact.
         
         Args:
-            required_space: Additional space needed for a new artifact
+            file_hash: The hash of the artifact
         """
-        if not self.max_size_bytes:
-            return
-        
-        current_size = self._get_cache_size()
-        target_size = self.max_size_bytes - required_space
-        
-        if current_size <= target_size:
-            return
-        
-        # Sort artifacts by access time (oldest first)
-        artifacts_to_consider = list(self.artifact_index.items())
-        artifacts_to_consider.sort(key=lambda x: (x[1].access_time, -x[1].access_count))
-        
-        # Remove artifacts until we're under the limit
-        for hash_val, metadata in artifacts_to_consider:
-            if current_size <= target_size:
-                break
-            
-            content_path = self.content_dir / hash_val
-            metadata_path = self.metadata_dir / f"{hash_val}.json"
-            
-            try:
-                if content_path.exists():
-                    content_path.unlink()
-                if metadata_path.exists():
-                    metadata_path.unlink()
-                    
-                current_size -= metadata.size
-                del self.artifact_index[hash_val]
-                
-                logger.debug(f"Removed artifact from cache: {metadata.original_name} [{hash_val}]")
-            except OSError as e:
-                logger.warning(f"Failed to remove cached artifact {hash_val}: {e}")
-        
-        # Save updated index
-        self._save_index()
+        if file_hash in self.artifact_index:
+            metadata = self.artifact_index[file_hash]
+            metadata.access_time = time.time()
+            metadata.access_count += 1
+            self._save_index()
     
-    def put(self, file_path: Path, artifact_type: ArtifactType, 
-            source_url: Optional[str] = None, custom_metadata: Dict[str, Any] = None) -> str:
+    def _compute_hash(self, file_path: Path) -> str:
+        """
+        Compute the SHA256 hash of a file.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            str: Hexadecimal digest of the hash
+        """
+        hasher = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    
+    def _get_artifact_path(self, file_hash: str) -> Path:
+        """
+        Get the path to an artifact.
+        
+        Args:
+            file_hash: The hash of the artifact
+            
+        Returns:
+            Path: Path to the artifact in the cache
+        """
+        return self.cache_dir / file_hash
+    
+    def add_file(self, file_path: Path, original_name: str = "", 
+                source_url: str = "", custom_metadata: Dict = None) -> Optional[Path]:
         """
         Add a file to the cache.
         
         Args:
-            file_path: Path to the file to cache
-            artifact_type: Type of artifact
-            source_url: Optional URL source of the artifact
-            custom_metadata: Optional custom metadata
+            file_path: Path to the file to add
+            original_name: Original name of the file
+            source_url: URL the file was downloaded from
+            custom_metadata: Additional metadata for the file
             
         Returns:
-            The content hash of the added file
+            Optional[Path]: Path to the cached file, or None if adding failed
         """
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
-        # Compute file hash
-        file_hash = self._compute_hash(file_path)
-        file_size = file_path.stat().st_size
-        
-        # Check if file is already in cache
-        if file_hash in self.artifact_index:
-            # Update access time and count
-            self._update_access_time(file_hash)
-            logger.debug(f"Artifact already in cache: {file_path.name} [{file_hash}]")
-            return file_hash
-        
-        # Clean up cache if needed to make room for the new file
-        self._cleanup(required_space=file_size)
-        
-        # Create new paths
-        content_path = self.content_dir / file_hash
-        metadata_path = self.metadata_dir / f"{file_hash}.json"
-        
-        # Copy file to content directory
         try:
-            shutil.copy2(file_path, content_path)
+            # Compute the hash of the file
+            file_hash = self._compute_hash(file_path)
             
-            # On Unix systems, make sure the file is read-only
-            if os.name == "posix":
-                content_path.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            # Check if the file is already in the cache
+            if file_hash in self.artifact_index:
+                self.logger.info(f"File {original_name} already in cache")
+                self._update_access_time(file_hash)
+                return self._get_artifact_path(file_hash)
             
-            # Create metadata
-            metadata = ArtifactMetadata(
+            # Copy the file to the cache
+            cache_path = self._get_artifact_path(file_hash)
+            shutil.copy2(file_path, cache_path)
+            
+            # Add to the index
+            self.artifact_index[file_hash] = ArtifactMetadata(
                 hash=file_hash,
-                original_name=file_path.name,
-                type=artifact_type,
-                size=file_size,
+                original_name=original_name or file_path.name,
+                type=self.default_artifact_type,
+                size=file_path.stat().st_size,
                 source_url=source_url,
+                creation_time=time.time(),
+                access_time=time.time(),
+                access_count=1,
                 custom_metadata=custom_metadata or {}
             )
             
-            # Save metadata file
-            with open(metadata_path, "w") as f:
-                json.dump(metadata.to_dict(), f, indent=2)
-            
-            # Update artifact index
-            self.artifact_index[file_hash] = metadata
+            # Save the index
             self._save_index()
             
-            logger.debug(f"Added artifact to cache: {file_path.name} [{file_hash}]")
-            return file_hash
-            
-        except (OSError, IOError) as e:
-            logger.error(f"Error adding artifact to cache: {e}")
-            if content_path.exists():
-                content_path.unlink()
-            if metadata_path.exists():
-                metadata_path.unlink()
-            raise
-    
-    def get(self, hash_val: str, output_path: Optional[Path] = None) -> Optional[Path]:
-        """
-        Retrieve a file from the cache.
-        
-        Args:
-            hash_val: Hash of the file to retrieve
-            output_path: Optional path to copy the file to
-            
-        Returns:
-            Path to the cached file or copied file, or None if not found
-        """
-        # Check if file is in cache
-        if hash_val not in self.artifact_index:
-            return None
-        
-        # Update access time
-        self._update_access_time(hash_val)
-        self._save_index()
-        
-        # Path to cached file
-        content_path = self.content_dir / hash_val
-        
-        if not content_path.exists():
-            # File is in index but not on disk
-            logger.warning(f"Cached file not found on disk: {hash_val}")
-            del self.artifact_index[hash_val]
-            self._save_index()
-            return None
-        
-        if output_path:
-            # Copy file to output path
-            try:
-                shutil.copy2(content_path, output_path)
-                return output_path
-            except (OSError, IOError) as e:
-                logger.error(f"Error copying cached file: {e}")
-                return None
-        
-        return content_path
-    
-    def get_with_name(self, hash_val: str, output_dir: Path, 
-                      use_original_name: bool = True) -> Optional[Path]:
-        """
-        Retrieve a file from the cache and save it with its original name.
-        
-        Args:
-            hash_val: Hash of the file to retrieve
-            output_dir: Directory to save the file to
-            use_original_name: Whether to use the original filename
-            
-        Returns:
-            Path to the copied file, or None if not found
-        """
-        # Check if file is in cache
-        if hash_val not in self.artifact_index:
-            return None
-        
-        metadata = self.artifact_index[hash_val]
-        
-        # Determine output filename
-        if use_original_name:
-            output_name = metadata.original_name
-        else:
-            # Use hash and preserve file extension
-            original_parts = metadata.original_name.rsplit('.', 1)
-            if len(original_parts) > 1:
-                output_name = f"{hash_val}.{original_parts[1]}"
-            else:
-                output_name = hash_val
-        
-        output_path = output_dir / output_name
-        return self.get(hash_val, output_path)
-    
-    def contains(self, hash_val: str) -> bool:
-        """
-        Check if a file is in the cache.
-        
-        Args:
-            hash_val: Hash of the file to check
-            
-        Returns:
-            True if the file is in the cache, False otherwise
-        """
-        # First check the index
-        if hash_val not in self.artifact_index:
-            return False
-        
-        # Then verify the file exists
-        content_path = self.content_dir / hash_val
-        if not content_path.exists():
-            # Remove from index if file doesn't exist
-            del self.artifact_index[hash_val]
-            self._save_index()
-            return False
-        
-        return True
-    
-    def get_metadata(self, hash_val: str) -> Optional[ArtifactMetadata]:
-        """
-        Get metadata for a cached file.
-        
-        Args:
-            hash_val: Hash of the file
-            
-        Returns:
-            Metadata for the file, or None if not found
-        """
-        if not self.contains(hash_val):
-            return None
-        
-        return self.artifact_index[hash_val]
-    
-    def list_artifacts(self, artifact_type: Optional[ArtifactType] = None) -> List[Tuple[str, ArtifactMetadata]]:
-        """
-        List artifacts in the cache.
-        
-        Args:
-            artifact_type: Optional type to filter by
-            
-        Returns:
-            List of (hash, metadata) tuples
-        """
-        artifacts = list(self.artifact_index.items())
-        
-        if artifact_type:
-            artifacts = [(h, m) for h, m in artifacts if m.type == artifact_type]
-        
-        return artifacts
-    
-    def remove(self, hash_val: str) -> bool:
-        """
-        Remove a file from the cache.
-        
-        Args:
-            hash_val: Hash of the file to remove
-            
-        Returns:
-            True if the file was removed, False otherwise
-        """
-        if hash_val not in self.artifact_index:
-            return False
-        
-        content_path = self.content_dir / hash_val
-        metadata_path = self.metadata_dir / f"{hash_val}.json"
-        
-        try:
-            if content_path.exists():
-                content_path.unlink()
-            if metadata_path.exists():
-                metadata_path.unlink()
-                
-            del self.artifact_index[hash_val]
-            self._save_index()
-            
-            return True
+            self.logger.info(f"Added {original_name} to cache with hash {file_hash}")
+            return cache_path
         except OSError as e:
-            logger.warning(f"Failed to remove cached artifact {hash_val}: {e}")
-            return False
+            self.logger.error(f"Failed to add file to cache: {e}")
+            return None
     
-    def clear(self) -> None:
-        """Clear all files from the cache"""
-        for hash_val in list(self.artifact_index.keys()):
-            self.remove(hash_val)
-        
-        # Make sure the index is empty and saved
-        self.artifact_index = {}
-        self._save_index()
-    
-    def verify_integrity(self) -> Tuple[int, int]:
+    def get_by_url(self, url: str) -> Optional[Path]:
         """
-        Verify the integrity of all cached files.
+        Get a file from the cache by URL.
         
+        Args:
+            url: The URL the file was downloaded from
+            
         Returns:
-            Tuple of (valid_count, invalid_count)
+            Optional[Path]: Path to the cached file, or None if not found
         """
-        valid_count = 0
-        invalid_count = 0
+        # Find artifacts with the matching URL
+        for file_hash, metadata in self.artifact_index.items():
+            if metadata.source_url == url:
+                # Update access time and count
+                self._update_access_time(file_hash)
+                
+                # Return the path to the cached file
+                return self._get_artifact_path(file_hash)
         
-        for hash_val, metadata in list(self.artifact_index.items()):
-            content_path = self.content_dir / hash_val
-            
-            if not content_path.exists():
-                logger.warning(f"Cached file not found on disk: {hash_val}")
-                del self.artifact_index[hash_val]
-                invalid_count += 1
-                continue
-            
-            # Verify hash
-            computed_hash = self._compute_hash(content_path)
-            if computed_hash != hash_val:
-                logger.warning(f"Hash mismatch for cached file: expected {hash_val}, got {computed_hash}")
-                # Remove corrupted file
-                self.remove(hash_val)
-                invalid_count += 1
-            else:
-                valid_count += 1
+        return None
+    
+    def cleanup(self, max_size_bytes: int = None) -> int:
+        """
+        Clean up the cache, removing old or unused artifacts.
         
-        # Save updated index
+        Args:
+            max_size_bytes: Maximum size of the cache in bytes
+            
+        Returns:
+            int: Number of bytes freed
+        """
+        if not max_size_bytes:
+            return 0
+            
+        # Calculate current cache size
+        current_size = sum(metadata.size for metadata in self.artifact_index.values())
+        
+        # If we're under the limit, no cleanup needed
+        if current_size <= max_size_bytes:
+            return 0
+            
+        # We need to free up space
+        bytes_to_free = current_size - max_size_bytes
+        bytes_freed = 0
+        
+        # Sort artifacts by access time (oldest first)
+        sorted_artifacts = sorted(
+            self.artifact_index.items(),
+            key=lambda x: (x[1].access_time, -x[1].access_count)
+        )
+        
+        # Remove artifacts until we've freed enough space
+        removed_hashes = []
+        for file_hash, metadata in sorted_artifacts:
+            # Skip if we've freed enough space
+            if bytes_freed >= bytes_to_free:
+                break
+                
+            # Remove the artifact
+            artifact_path = self._get_artifact_path(file_hash)
+            if artifact_path.exists():
+                artifact_path.unlink()
+                
+            # Update tracking
+            bytes_freed += metadata.size
+            removed_hashes.append(file_hash)
+            self.logger.info(f"Removed {metadata.original_name} from cache (freed {format_size(metadata.size)})")
+        
+        # Update the index
+        for file_hash in removed_hashes:
+            del self.artifact_index[file_hash]
+            
+        # Save the index
         self._save_index()
         
-        return valid_count, invalid_count
+        self.logger.info(f"Cache cleanup complete: freed {format_size(bytes_freed)}")
+        return bytes_freed
 
 
 class CachedDownloader:
-    """
-    A utility for downloading files with caching.
+    """Utility for downloading files with caching capabilities."""
     
-    This class wraps the ContentAddressableCache to provide an easy way
-    to download files while taking advantage of caching.
-    """
-    
-    def __init__(self, cache: ContentAddressableCache) -> None:
+    def __init__(self, cache: ContentAddressableCache):
         """
-        Initialize the cached downloader.
+        Initialize the downloader with a cache.
         
         Args:
             cache: The ContentAddressableCache to use
         """
         self.cache = cache
+        self.logger = logging.getLogger(__name__)
     
-    def download(self, url: str, output_path: Path, 
-                 artifact_type: ArtifactType = ArtifactType.OTHER,
-                 expected_hash: Optional[str] = None,
-                 custom_metadata: Dict[str, Any] = None) -> bool:
+    def download_file(self, url: str, dest_path: Path) -> bool:
         """
-        Download a file with caching.
-        
-        If the file is already in the cache, it will be retrieved from there.
-        Otherwise, it will be downloaded and added to the cache.
+        Download a file from a URL to a destination path.
         
         Args:
-            url: URL to download
-            output_path: Path to save the file to
-            artifact_type: Type of artifact
-            expected_hash: Optional expected hash for verification
-            custom_metadata: Optional custom metadata
+            url: URL to download from
+            dest_path: Path to save the file to
             
         Returns:
-            True if the download was successful, False otherwise
+            bool: True if successful, False otherwise
         """
-        # Extract filename from URL
-        filename = os.path.basename(urlparse(url).path)
-        if not filename:
-            filename = "downloaded_file"
-        
-        # Try to get file hash from URL
-        url_hash = self._compute_hash_from_url(url)
-        
-        # If we have an expected hash, use it
-        file_hash = expected_hash or url_hash
-        
-        # If we have a hash, check if the file is already in the cache
-        if file_hash and self.cache.contains(file_hash):
-            logger.info(f"Using cached version of {filename}")
-            # Retrieve from cache
-            cached_path = self.cache.get(file_hash, output_path)
-            return cached_path is not None
-        
-        # If not in cache or we don't have a hash, download the file
-        logger.info(f"Downloading {url}")
-        
-        # Create temporary file
-        temp_dir = Path(output_path.parent / ".temp")
-        temp_dir.mkdir(exist_ok=True)
-        temp_path = temp_dir / f"download_{int(time.time())}_{filename}"
-        
         try:
-            # Download file
-            with requests.get(url, stream=True) as r:
-                r.raise_for_status()
-                with open(temp_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
+            # Create parent directories if they don't exist
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # If we have an expected hash, verify it
-            if expected_hash:
-                computed_hash = self.cache._compute_hash(temp_path)
-                if computed_hash != expected_hash:
-                    logger.error(f"Hash mismatch: expected {expected_hash}, got {computed_hash}")
-                    return False
-                file_hash = computed_hash
+            # Download the file in chunks to handle large files
+            with requests.get(url, stream=True) as response:
+                response.raise_for_status()
+                
+                # Get total file size, if available
+                total_size = int(response.headers.get('content-length', 0))
+                self.logger.info(f"Downloading {url} ({format_size(total_size)})")
+                
+                # Write file in chunks
+                with open(dest_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
             
-            # Add to cache
-            file_hash = self.cache.put(
-                temp_path, 
-                artifact_type, 
-                source_url=url,
-                custom_metadata=custom_metadata
-            )
-            
-            # Get from cache to output path
-            cached_path = self.cache.get(file_hash, output_path)
-            return cached_path is not None
-            
-        except (requests.RequestException, OSError) as e:
-            logger.error(f"Error downloading {url}: {e}")
+            return True
+        except Exception as e:
+            self.logger.exception(f"Error downloading file from {url}: {e}")
+            if dest_path.exists():
+                dest_path.unlink()
             return False
-        finally:
-            # Clean up temporary file
-            if temp_path.exists():
-                temp_path.unlink()
-    
-    def _compute_hash_from_url(self, url: str) -> Optional[str]:
-        """Extract a hash from a URL, if present"""
-        return self.cache._compute_hash_from_url(url)
 
 
 class VMImageCache:
-    """
-    Specialized cache for VM images.
+    """Cache specifically designed for VM images with verification."""
     
-    This class wraps ContentAddressableCache to provide specific functionality
-    for caching and retrieving VM images.
-    """
-    
-    def __init__(self, cache: ContentAddressableCache) -> None:
+    def __init__(self, cache_dir: Path):
         """
         Initialize the VM image cache.
         
         Args:
-            cache: The ContentAddressableCache to use
+            cache_dir: Directory to store cached VM images
         """
-        self.cache = cache
-        self.downloader = CachedDownloader(cache)
+        self.cache = ContentAddressableCache(
+            cache_dir, 
+            default_artifact_type=ArtifactType.VM_IMAGE
+        )
+        self.logger = logging.getLogger(__name__)
     
-    def get_vm_image(self, url: str, target_path: Path, 
-                     sha256_url: Optional[str] = None) -> bool:
+    def get_vm_image(self, url: str, dest_path: Path, sha256_url: str) -> bool:
         """
-        Get a VM image, either from cache or by downloading it.
+        Get a VM image, either from cache or by downloading.
         
         Args:
             url: URL to download the VM image from
-            target_path: Path to save the VM image to
-            sha256_url: Optional URL to download the SHA256 hash from
+            dest_path: Where to copy the VM image to
+            sha256_url: URL for the SHA256 checksum file
             
         Returns:
-            True if the VM image was successfully obtained, False otherwise
+            bool: True if successful, False otherwise
         """
-        expected_hash = None
-        
-        # If we have a SHA256 URL, download and parse it
-        if sha256_url:
-            # Download SHA256 file to memory
-            try:
-                response = requests.get(sha256_url)
-                response.raise_for_status()
+        try:
+            # Try to get from cache first
+            cached_file = self.cache.get_by_url(url)
+            if cached_file:
+                self.logger.info(f"Using cached VM image for {url}")
+                shutil.copy2(cached_file, dest_path)
+                return True
                 
-                # Parse SHA256 file (format: "hash filename")
-                sha_content = response.text.strip()
+            # Download both the image and its checksum
+            with tempfile.TemporaryDirectory() as tmpdir:
+                temp_dir = Path(tmpdir)
+                iso_path = temp_dir / Path(url).name
+                sha_path = temp_dir / f"{Path(url).name}.sha256"
                 
-                # Extract hash from first line that contains a hash
-                for line in sha_content.splitlines():
-                    parts = line.split()
-                    if len(parts) >= 1 and len(parts[0]) == 64:
-                        expected_hash = parts[0]
-                        break
+                # Download image
+                self.logger.info(f"Downloading VM image from {url}")
+                downloader = CachedDownloader(self.cache)
+                if not downloader.download_file(url, iso_path):
+                    self.logger.error(f"Failed to download VM image from {url}")
+                    return False
+                    
+                # Download checksum
+                self.logger.info(f"Downloading checksum from {sha256_url}")
+                if not downloader.download_file(sha256_url, sha_path):
+                    self.logger.error(f"Failed to download checksum from {sha256_url}")
+                    return False
                 
-                if not expected_hash:
-                    logger.warning(f"Could not extract hash from {sha256_url}")
-            except requests.RequestException as e:
-                logger.warning(f"Error downloading SHA256 file: {e}")
-        
-        # Prepare custom metadata
-        custom_metadata = {
-            "vm_image": True,
-            "sha256_url": sha256_url
-        }
-        
-        # Download/retrieve from cache
-        return self.downloader.download(
-            url, 
-            target_path, 
-            artifact_type=ArtifactType.VM_IMAGE,
-            expected_hash=expected_hash,
-            custom_metadata=custom_metadata
-        )
+                # Verify the image
+                self.logger.info("Verifying VM image integrity")
+                if self._verify_vm_image(iso_path, sha_path):
+                    # Add to cache and copy to destination
+                    self.logger.info("VM image verified, adding to cache")
+                    cached_path = self.cache.add_file(
+                        iso_path,
+                        original_name=Path(url).name,
+                        source_url=url,
+                        custom_metadata={"sha256_url": sha256_url}
+                    )
+                    if cached_path:
+                        shutil.copy2(cached_path, dest_path)
+                        return True
+                    else:
+                        self.logger.error("Failed to add verified image to cache")
+                else:
+                    self.logger.error("VM image verification failed")
+            
+            return False
+        except Exception as e:
+            self.logger.exception(f"Error getting VM image: {e}")
+            return False
     
-    def list_vm_images(self) -> List[Tuple[str, ArtifactMetadata]]:
+    def _verify_vm_image(self, iso_path: Path, sha_path: Path) -> bool:
         """
-        List all VM images in the cache.
-        
-        Returns:
-            List of (hash, metadata) tuples
-        """
-        return self.cache.list_artifacts(ArtifactType.VM_IMAGE)
-    
-    def get_image_info(self, hash_val: str) -> Dict[str, Any]:
-        """
-        Get information about a VM image.
+        Verify a VM image against its SHA256 checksum.
         
         Args:
-            hash_val: Hash of the VM image
+            iso_path: Path to the ISO file
+            sha_path: Path to the SHA256 checksum file
             
         Returns:
-            Dictionary with information about the VM image
+            bool: True if verification was successful, False otherwise
         """
-        metadata = self.cache.get_metadata(hash_val)
-        if not metadata:
-            return {}
-        
-        return {
-            "hash": metadata.hash,
-            "name": metadata.original_name,
-            "size": format_size(metadata.size),
-            "source": metadata.source_url,
-            "cached_time": time.ctime(metadata.creation_time),
-            "last_used": time.ctime(metadata.access_time),
-            "use_count": metadata.access_count,
-        }
+        try:
+            # Read the expected hash from the sha file
+            with open(sha_path, 'r') as f:
+                hash_line = f.readline().strip()
+                expected_hash = hash_line.split()[0]
+            
+            # Calculate the actual hash
+            hasher = hashlib.sha256()
+            with open(iso_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    hasher.update(chunk)
+            actual_hash = hasher.hexdigest()
+            
+            return actual_hash.lower() == expected_hash.lower()
+        except Exception as e:
+            self.logger.exception(f"Error verifying VM image: {e}")
+            return False
 
 
 class TestArtifactCache:
-    """
-    Specialized cache for test artifacts.
+    """Cache specialized for test artifacts."""
     
-    This class provides functionality for caching test-related artifacts
-    such as test data, fixtures, and other test resources.
-    """
-    
-    def __init__(self, cache: ContentAddressableCache) -> None:
+    def __init__(self, cache_dir: Path):
         """
         Initialize the test artifact cache.
         
         Args:
-            cache: The ContentAddressableCache to use
+            cache_dir: Directory to store cached test artifacts
         """
-        self.cache = cache
+        self.cache = ContentAddressableCache(
+            cache_dir, 
+            default_artifact_type=ArtifactType.TEST_ARTIFACT
+        )
+        self.logger = logging.getLogger(__name__)
     
-    def cache_artifact(self, file_path: Path, 
-                       category: str = "general") -> str:
+    def cache_test_file(self, file_path: Path, category: str) -> Optional[Path]:
         """
-        Add a test artifact to the cache.
+        Cache a test file.
         
         Args:
             file_path: Path to the file to cache
-            category: Category of the test artifact
+            category: Category of the test artifact (e.g., 'fixtures', 'reports')
             
         Returns:
-            The content hash of the added file
+            Optional[Path]: Path to the cached file, or None if caching failed
         """
-        custom_metadata = {"category": category}
-        
-        return self.cache.put(
-            file_path,
-            ArtifactType.TEST_ARTIFACT,
-            custom_metadata=custom_metadata
-        )
+        try:
+            metadata = {
+                "category": category,
+                "test_artifact": True
+            }
+            
+            return self.cache.add_file(
+                file_path,
+                original_name=file_path.name,
+                custom_metadata=metadata
+            )
+        except Exception as e:
+            self.logger.exception(f"Error caching test file: {e}")
+            return None
     
-    def cache_directory(self, dir_path: Path, 
-                        category: str = "general", 
-                        exclude_patterns: List[str] = None) -> List[str]:
+    def get_test_file(self, file_path: Path, output_path: Path) -> bool:
         """
-        Add all files in a directory to the cache.
+        Retrieve a test file from the cache.
         
         Args:
-            dir_path: Path to the directory to cache
-            category: Category of the test artifacts
-            exclude_patterns: Patterns to exclude
+            file_path: Original path of the file
+            output_path: Where to place the retrieved file
             
         Returns:
-            List of content hashes of added files
+            bool: True if the file was retrieved, False otherwise
         """
-        exclude_patterns = exclude_patterns or [
-            ".git", "__pycache__", "*.pyc", 
-            ".pytest_cache", "*.egg-info", "*.so", "*.o"
-        ]
+        try:
+            # Compute the hash of the file path to look for
+            hasher = hashlib.sha256()
+            hasher.update(str(file_path).encode())
+            file_hash = hasher.hexdigest()
+            
+            # Check if we have any matches in metadata
+            for cached_hash, metadata in self.cache.artifact_index.items():
+                if metadata.original_name == file_path.name:
+                    # Found a match, copy it to the output path
+                    cached_path = self.cache._get_artifact_path(cached_hash)
+                    if cached_path.exists():
+                        output_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(cached_path, output_path)
+                        self.cache._update_access_time(cached_hash)
+                        return True
+            
+            # No match found
+            return False
+        except Exception as e:
+            self.logger.exception(f"Error retrieving test file: {e}")
+            return False
+    
+    def cleanup_test_artifacts(self, max_age_days: int = 7) -> int:
+        """
+        Clean up old test artifacts.
         
-        # Compile patterns into a function
-        def should_exclude(path: Path) -> bool:
-            path_str = str(path)
-            return any(pattern in path_str for pattern in exclude_patterns)
-        
-        # Find all files in the directory
-        files_to_cache = []
-        for root, _, files in os.walk(dir_path):
-            root_path = Path(root)
-            if should_exclude(root_path):
-                continue
+        Args:
+            max_age_days: Maximum age of test artifacts in days
+            
+        Returns:
+            int: Number of artifacts removed
+        """
+        try:
+            now = time.time()
+            max_age_seconds = max_age_days * 24 * 60 * 60
+            removed_count = 0
+            
+            # Find old artifacts
+            for file_hash, metadata in list(self.cache.artifact_index.items()):
+                if metadata.type != ArtifactType.TEST_ARTIFACT:
+                    continue
+                    
+                age = now - metadata.access_time
+                if age > max_age_seconds:
+                    # Remove old artifact
+                    artifact_path = self.cache._get_artifact_path(file_hash)
+                    if artifact_path.exists():
+                        artifact_path.unlink()
+                    
+                    # Remove from index
+                    del self.cache.artifact_index[file_hash]
+                    removed_count += 1
+                    
+            # Save the index if we removed anything
+            if removed_count > 0:
+                self.cache._save_index()
+                self.logger.info(f"Removed {removed_count} old test artifacts")
                 
-            for file in files:
-                file_path = root_path / file
-                if not should_exclude(file_path):
-                    files_to_cache.append(file_path)
-        
-        # Cache files in parallel
-        hashes = []
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for file_path in files_to_cache:
-                # Determine relative path for categorization
-                rel_path = file_path.relative_to(dir_path)
-                # Use dirname as subcategory
-                subcategory = f"{category}/{rel_path.parent}"
-                futures.append(
-                    executor.submit(self.cache_artifact, file_path, subcategory)
-                )
-            
-            for future in futures:
-                hashes.append(future.result())
-        
-        return hashes
-    
-    def get_artifact(self, hash_val: str, output_path: Path) -> Optional[Path]:
-        """
-        Retrieve a test artifact from the cache.
-        
-        Args:
-            hash_val: Hash of the file to retrieve
-            output_path: Path to save the file to
-            
-        Returns:
-            Path to the retrieved file, or None if not found
-        """
-        return self.cache.get(hash_val, output_path)
-    
-    def list_artifacts(self, category: Optional[str] = None) -> List[Tuple[str, ArtifactMetadata]]:
-        """
-        List test artifacts in the cache.
-        
-        Args:
-            category: Optional category to filter by
-            
-        Returns:
-            List of (hash, metadata) tuples
-        """
-        artifacts = self.cache.list_artifacts(ArtifactType.TEST_ARTIFACT)
-        
-        if category:
-            artifacts = [
-                (h, m) for h, m in artifacts 
-                if m.custom_metadata.get("category", "").startswith(category)
-            ]
-        
-        return artifacts
+            return removed_count
+        except Exception as e:
+            self.logger.exception(f"Error cleaning up test artifacts: {e}")
+            return 0
 
 
 def get_artifact_cache(cache_dir: Path, max_size_mb: int = 2048) -> ContentAddressableCache:
@@ -851,29 +618,29 @@ def get_artifact_cache(cache_dir: Path, max_size_mb: int = 2048) -> ContentAddre
     return ContentAddressableCache(cache_dir, max_size_bytes)
 
 
-def get_vm_image_cache(cache_dir: Path) -> VMImageCache:
+def get_vm_image_cache(cache_dir: Path) -> 'VMImageCache':
     """
-    Get or create a VM image cache.
+    Get or create a VMImageCache instance for the given cache directory.
     
     Args:
-        cache_dir: Directory to store the cache
+        cache_dir: Path to the cache directory
         
     Returns:
-        VMImageCache instance
+        VMImageCache: An instance of VMImageCache
     """
-    cache = get_artifact_cache(cache_dir)
-    return VMImageCache(cache)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return VMImageCache(cache_dir)
 
 
 def get_test_artifact_cache(cache_dir: Path) -> TestArtifactCache:
     """
-    Get or create a test artifact cache.
+    Get or create a TestArtifactCache instance for the given cache directory.
     
     Args:
-        cache_dir: Directory to store the cache
+        cache_dir: Path to the cache directory
         
     Returns:
-        TestArtifactCache instance
+        TestArtifactCache: An instance of TestArtifactCache
     """
-    cache = get_artifact_cache(cache_dir)
-    return TestArtifactCache(cache) 
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return TestArtifactCache(cache_dir) 

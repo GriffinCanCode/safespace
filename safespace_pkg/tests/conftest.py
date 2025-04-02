@@ -5,6 +5,12 @@ This module provides configuration for pytest tests in the SafeSpace package.
 """
 
 import pytest
+import os
+import tempfile
+from pathlib import Path
+
+from safespace.testing import TestEnvironment
+from safespace.artifact_cache import get_test_artifact_cache
 
 
 def pytest_configure(config):
@@ -34,7 +40,6 @@ def temp_safe_environment(tmp_path):
     Returns:
         Tuple of (SafeEnvironment instance, Path to environment dir)
     """
-    from pathlib import Path
     from safespace.environment import SafeEnvironment
     
     env_dir = tmp_path / "safe_env"
@@ -98,4 +103,54 @@ def mock_vm_manager(monkeypatch):
     # Patch the VMManager class
     monkeypatch.setattr("safespace.vm.VMManager", lambda *args, **kwargs: mock_vm)
     
-    return mock_vm 
+    return mock_vm
+
+
+@pytest.fixture(scope="session")
+def test_cache_dir():
+    """
+    Fixture for the test artifact cache directory.
+    
+    Returns:
+        Path: Path to the test cache directory
+    """
+    # Use a cache directory in the user's home directory
+    cache_dir = Path.home() / ".safespace" / "test_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+@pytest.fixture(scope="session")
+def test_artifact_cache(test_cache_dir):
+    """
+    Fixture for the test artifact cache.
+    
+    Args:
+        test_cache_dir: The test cache directory
+        
+    Returns:
+        TestArtifactCache: The test artifact cache
+    """
+    return get_test_artifact_cache(test_cache_dir)
+
+
+@pytest.fixture(scope="function")
+def test_env(test_artifact_cache):
+    """
+    Fixture for a test environment.
+    
+    This fixture creates a temporary test environment for each test,
+    and cleans it up after the test is done.
+    
+    Args:
+        test_artifact_cache: The test artifact cache
+        
+    Returns:
+        TestEnvironment: The test environment
+    """
+    # Create temporary directory for the test
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env = TestEnvironment(Path(tmpdir))
+        env.setup()
+        yield env
+        env.cleanup() 

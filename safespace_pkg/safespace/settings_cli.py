@@ -21,6 +21,7 @@ from .settings import (
     load_settings,
     reset_settings,
     update_setting,
+    save_settings,
 )
 from .utils import Colors, log_status
 
@@ -233,7 +234,6 @@ def import_settings(ctx: click.Context, import_file: str, yes: bool = False) -> 
                 setattr(section_obj, key, value)
         
         # Save settings
-        from .settings import save_settings
         if save_settings(settings, config_file):
             log_status(f"Settings imported from {import_file}", Colors.GREEN)
         else:

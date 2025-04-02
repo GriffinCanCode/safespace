@@ -118,11 +118,25 @@ def get_available_space(path: Path) -> int:
     return stats.free
 
 def format_size(size_bytes: int) -> str:
-    """Format bytes as human-readable size (KB, MB, GB, etc.)"""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_bytes < 1024 or unit == 'TB':
-            return f"{size_bytes:.2f} {unit}"
+    """
+    Format a size in bytes to a human-readable format.
+    
+    Args:
+        size_bytes: Size in bytes
+        
+    Returns:
+        str: Human-readable size
+    """
+    if size_bytes == 0:
+        return "0 B"
+        
+    size_names = ["B", "KB", "MB", "GB", "TB"]
+    i = 0
+    while size_bytes >= 1024 and i < len(size_names) - 1:
         size_bytes /= 1024
+        i += 1
+        
+    return f"{size_bytes:.2f} {size_names[i]}"
 
 def is_command_available(command: str) -> bool:
     """Check if a command is available in the system PATH"""

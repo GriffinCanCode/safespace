@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 
-from yaml import safe_load, dump
+import yaml
 from .utils import log_status, Colors, create_secure_directory
 
 # Set up logging

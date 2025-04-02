@@ -19,6 +19,7 @@ A comprehensive environment isolation and testing tool that creates secure, isol
 | **Network Isolation** | Create isolated network namespaces | ✅ Implemented |
 | **VM Integration** | Lightweight virtual machines for complete isolation | ✅ Implemented |
 | **Testing Framework** | Comprehensive testing environments | ✅ Implemented |
+| **Dependency Management** | Built-in Python dependency management | ✅ Implemented |
 
 ## 📋 Environment Template Types
 
@@ -69,6 +70,38 @@ safespace --test
 safespace --enhanced
 ```
 
+### Dependency Management
+
+```bash
+# Initialize dependency management for a project
+safespace dep init
+
+# Add dependencies
+safespace dep add pytest click
+
+# Add development dependencies
+safespace dep add --dev black isort
+
+# Install dependencies
+safespace dep install
+
+# Create a virtual environment with dependencies
+safespace dep create-venv --venv .venv
+
+# List installed packages
+safespace dep list
+
+# Check for dependency conflicts
+safespace dep check
+
+# Export dependencies to a file
+safespace dep export --output requirements-dev.txt
+
+# Convert between dependency formats
+safespace dep convert requirements poetry
+safespace dep convert poetry requirements
+```
+
 ### Additional Configuration
 
 ```bash
@@ -114,7 +147,8 @@ graph LR
     A --> C[VMManager]
     A --> D[TestEnvironment]
     A --> E[ResourceManager]
-    F[Templates] --> A
+    A --> F[DependencyManager]
+    G[Templates] --> A
 ```
 
 ## 🧪 Testing Features
@@ -145,6 +179,14 @@ safe_env/
 - Git hooks (pre-commit configuration)
 - CI/CD workflows
 - Development scripts
+
+### Package Management Integration
+
+- Built-in dependency management with pip and poetry
+- Virtual environment creation and management
+- Dependency conflict detection
+- Conversion between dependency formats
+- Dependency export and import
 
 ## 📄 License
 

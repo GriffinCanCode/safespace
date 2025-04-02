@@ -26,6 +26,7 @@ safespace_pkg/tests/
 .cursorignorerules
 .cursorignorerules
 .cursorignorerules
+.pytest_cache/
 .venv/
 venv/
 env/

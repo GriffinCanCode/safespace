@@ -109,6 +109,8 @@
   - [x] Test framework libraries
 - [x] Add all dependencies to `setup.py`
 - [x] Create separate optional dependency groups
+- [x] Add built-in Python dependency management
+- [x] Create integration with package managers (pip, poetry, etc.)
 
 ## Step 6: Handle Bash Components ⬜
 - [x] Create Python wrappers for system commands:
@@ -251,6 +253,15 @@
   - ✅ Added system load monitoring with adjustment interval
   - ✅ Created recommended resource limits based on system state
   - ✅ Added adaptive cache management for disk space optimization
+- ✅ Step 5 - Enhanced Dependency Management
+  - ✅ Added DependencyManager class for managing Python dependencies
+  - ✅ Implemented pip integration for requirements.txt management
+  - ✅ Added Poetry integration for pyproject.toml management
+  - ✅ Implemented dependency conversion between formats
+  - ✅ Created CLI interface for dependency management
+  - ✅ Added integration with virtual environments
+  - ✅ Added dependency conflict checking functionality
+  - ✅ Integrated dependency management with main CLI
 - ⬜ Next step: Handle Bash Components
   - ✅ Complete macOS platform-specific code for network isolation
   - ⬜ Replace remaining bash-specific syntax

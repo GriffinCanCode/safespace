@@ -17,6 +17,7 @@ from .environment import SafeEnvironment
 from .utils import Colors, log_status, setup_logging
 from .settings_cli import settings_cli
 from .bio_cli import show_author
+from .dependency_cli import dependency_cli
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -142,6 +143,7 @@ def main(
 
     # Register settings command
     main.add_command(settings_cli)
+    main.add_command(dependency_cli, name="dep")
 
 def print_banner() -> None:
     """Print the SafeSpace banner"""
@@ -433,20 +435,19 @@ def author(ctx: click.Context) -> None:
 @main.command()
 @click.pass_context
 def foreclose(ctx: click.Context) -> None:
-    """Completely remove an environment and all backups"""
+    """Foreclose a testing environment"""
     # Print banner
     print_banner()
     
-    # Confirm action
-    if not click.confirm("This will completely remove the environment and all backups. Are you sure?"):
-        log_status("Operation cancelled", Colors.YELLOW)
-        sys.exit(0)
+    # Create environment with foreclose mode
+    env = SafeEnvironment()
     
-    # Create environment in internal mode
-    env = SafeEnvironment(internal_mode=True)
-    
-    # Foreclose the environment
-    env.foreclose()
+    # Execute foreclose
+    if env.foreclose_environment():
+        log_status("Environment foreclosed successfully", Colors.GREEN)
+    else:
+        log_status("Failed to foreclose environment", Colors.RED)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
