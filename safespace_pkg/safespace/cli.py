@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 @click.option("--debug", is_flag=True, help="Enable debug logging")
 @click.option("--wordspace", is_flag=True, help="Show comprehensive documentation")
 @click.option("--wordspace-section", help="Show specific documentation section")
+@click.option("--wordspace-subsection", help="Show specific documentation subsection")
 @click.option("--wordspace-tree", is_flag=True, help="Show documentation in tree view")
+@click.option("--wordspace-interactive", is_flag=True, help="Show documentation in interactive mode")
 @click.version_option(version=__version__)
 @click.pass_context
 def main(
@@ -47,7 +49,9 @@ def main(
     debug: bool,
     wordspace: bool,
     wordspace_section: Optional[str],
+    wordspace_subsection: Optional[str],
     wordspace_tree: bool,
+    wordspace_interactive: bool,
 ) -> None:
     """
     SafeSpace - Safe Environment Creator and Manager
@@ -71,12 +75,31 @@ def main(
     ctx.obj["debug"] = debug
     ctx.obj["wordspace"] = wordspace
     ctx.obj["wordspace_section"] = wordspace_section
+    ctx.obj["wordspace_subsection"] = wordspace_subsection
     ctx.obj["wordspace_tree"] = wordspace_tree
+    ctx.obj["wordspace_interactive"] = wordspace_interactive
     
     # Check if wordspace documentation is requested
-    if wordspace or wordspace_section is not None or wordspace_tree:
+    if (wordspace or wordspace_section is not None or 
+        wordspace_subsection is not None or wordspace_tree or 
+        wordspace_interactive):
         from .docs.documentation_cli import display_documentation
-        display_documentation(wordspace_section, wordspace_tree)
+        
+        # If subsection is specified but section is not, show an error
+        if wordspace_subsection is not None and wordspace_section is None:
+            click.echo(click.style(
+                "Error: --wordspace-subsection requires --wordspace-section",
+                fg="red"
+            ))
+            sys.exit(1)
+            
+        # Call the documentation display function with all options
+        display_documentation(
+            section_id=wordspace_section or (None if not wordspace else "core-concepts"),
+            subsection_id=wordspace_subsection,
+            tree_view=wordspace_tree,
+            interactive=wordspace_interactive
+        )
         sys.exit(0)
     
     # Print banner if not running a subcommand
