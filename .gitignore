@@ -18,6 +18,14 @@ __pycache__/
 *.pyc
 node_modules/
 bower_components/
+safespace_pkg/tests/
+.cursorrules
+.cursorignore
+.cursorignorerules
+.cursorignorerules
+.cursorignorerules
+.cursorignorerules
+.cursorignorerules
 .venv/
 venv/
 env/
