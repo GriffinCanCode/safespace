@@ -62,3 +62,6 @@ action_plan.md
 .png
 .pyc
 .zip
+
+# Exclude safespace_pkg/~ directory (contains credentials)
+safespace_pkg/~/
