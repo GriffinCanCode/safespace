@@ -9,7 +9,7 @@ A comprehensive environment isolation and testing tool that creates secure, isol
 
 </div>
 
-## 🔒 Core Features
+## Core Features
 
 | Feature | Description | Status |
 |---------|-------------|--------|
@@ -22,7 +22,7 @@ A comprehensive environment isolation and testing tool that creates secure, isol
 | **Dependency Management** | Built-in Python dependency management | ✅ Implemented |
 | **Persistent Environments** | Save and recall environments across sessions | ✅ Implemented |
 
-## 📋 Environment Template Types
+## Environment Template Types
 
 <details>
 <summary>Click to view available templates</summary>
@@ -38,7 +38,7 @@ A comprehensive environment isolation and testing tool that creates secure, isol
 
 </details>
 
-## 🚀 Installation
+## Installation
 
 ```bash
 # From PyPI
@@ -50,7 +50,7 @@ pip install safespace[vm]       # For VM features
 pip install safespace[dev]      # For development
 ```
 
-## 💻 Usage
+## Usage
 
 ### Basic Usage
 
@@ -144,7 +144,7 @@ safespace --cleanup
 safespace foreclose
 ```
 
-## 🔄 Resource Management
+## Resource Management
 
 SafeSpace includes a sophisticated resource manager that:
 
@@ -163,7 +163,7 @@ graph TD
     E --> H[Auto-Cleanup]
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 SafeSpace uses a modular architecture with the following components:
 
@@ -179,7 +179,7 @@ graph LR
     H --> I[(SQLite DB)]
 ```
 
-## 🧪 Testing Features
+## Testing Features
 
 Environments can be configured with comprehensive testing capabilities:
 
@@ -188,7 +188,7 @@ Environments can be configured with comprehensive testing capabilities:
 - Code quality tools (black, isort, mypy, ruff)
 - Security scanning (safety, bandit)
 
-## 📦 Environment Features
+## Environment Features
 
 ### Directory Structure
 
@@ -216,7 +216,7 @@ safe_env/
 - Conversion between dependency formats
 - Dependency export and import
 
-## 📄 License
+## License
 
 MIT
 

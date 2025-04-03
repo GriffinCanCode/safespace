@@ -9,9 +9,9 @@ setup(
     description="Safe Environment Creator and Manager",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    author="SafeSpace Team",
-    author_email="info@safespace.example.com",
-    url="https://github.com/username/safespace",
+    author="Griffin",
+    author_email="griffin@griffin-code.com",
+    url="https://github.com/griffincancode/safespace",
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
